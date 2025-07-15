@@ -8,34 +8,24 @@ using System.Linq;
 public class Pathfinder : MonoBehaviour
 {
     public Material navMeshMaterial; // Default legacy materials that are unlit can be used here. We want to use the vertex colors to visualize the triangles.
-
+    // Draw debugs
     MeshFilter meshFilter;
     MeshRenderer meshRenderer;
+    // We must represent the Nodes ourselves so that we can perform A* and goal bounding on our own
     List<Node> nodeList = new List<Node>();
 
     void Start()
     {
-        // Add MeshFilter and MeshRenderer components if they don't exist
         meshFilter = GetComponent<MeshFilter>();
-        if (meshFilter == null)
-        {
-            meshFilter = gameObject.AddComponent<MeshFilter>();
-        }
+        if (!meshFilter) meshFilter = gameObject.AddComponent<MeshFilter>();
 
         meshRenderer = GetComponent<MeshRenderer>();
-        if (meshRenderer == null)
-        {
-            meshRenderer = gameObject.AddComponent<MeshRenderer>();
-        }
+        if (!meshRenderer) meshRenderer = gameObject.AddComponent<MeshRenderer>();
 
-        if (navMeshMaterial != null)
-        {
-            meshRenderer.material = navMeshMaterial;
-        }
+        if (!navMeshMaterial) meshRenderer.material = navMeshMaterial;
         else
         {
             Debug.LogWarning("Please assign a material to the 'navMeshMaterial' field for visualization.");
-            // Create a default material if none is assigned
             meshRenderer.material = new Material(Shader.Find("Standard"));
             meshRenderer.material.color = Color.blue;
         }
@@ -43,21 +33,24 @@ public class Pathfinder : MonoBehaviour
         GenerateNavMeshMesh();
     }
 
+    [ContextMenu("Regen Navmesh")]
     void GenerateNavMeshMesh()
     {
         NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
 
+        var (weldedVertices, newIndices) = WeldVertices(triangulation);
+
         // Calculate triangles from the data
-        for (int i = 0; i < triangulation.indices.Length / 3; i++)
+        for (int i = 0; i < newIndices.Length / 3; i++)
         {
             int triIndex = i * 3;
-            int v1Index = triangulation.indices[triIndex];
-            int v2Index = triangulation.indices[triIndex + 1];
-            int v3Index = triangulation.indices[triIndex + 2];
+            int v1Index = newIndices[triIndex];
+            int v2Index = newIndices[triIndex + 1];
+            int v3Index = newIndices[triIndex + 2];
 
-            Vector3 v1 = triangulation.vertices[v1Index];
-            Vector3 v2 = triangulation.vertices[v2Index];
-            Vector3 v3 = triangulation.vertices[v3Index];
+            Vector3 v1 = weldedVertices[v1Index];
+            Vector3 v2 = weldedVertices[v2Index];
+            Vector3 v3 = weldedVertices[v3Index];
 
             Vector3 center = (v1 + v2 + v3) / 3f;
             int[] vertices = { v1Index, v2Index, v3Index };
@@ -100,7 +93,7 @@ public class Pathfinder : MonoBehaviour
             }
         }
 
-        VisualizeNavmesh(triangulation);
+        VisualizeNavmesh(weldedVertices, newIndices);
     }
 
     void Update()
@@ -115,7 +108,45 @@ public class Pathfinder : MonoBehaviour
         }
     }
 
-    private void VisualizeNavmesh(NavMeshTriangulation triangulation)
+    // Helper welder function to merge vertices in the same spot that aren't the same index
+    private (Vector3[] weldedVertices, int[] newTriangleIndices) WeldVertices(NavMeshTriangulation triangulation)
+    {
+        var uniquePositions = new Dictionary<Vector3, int>();
+        var newVertices = new List<Vector3>();
+        var oldToNewIndexMap = new int[triangulation.vertices.Length];
+        int newIndex = 0;
+
+        // First pass: Find all unique vertex positions
+        for (int i = 0; i < triangulation.vertices.Length; i++)
+        {
+            Vector3 pos = triangulation.vertices[i];
+            if (!uniquePositions.ContainsKey(pos))
+            {
+                uniquePositions.Add(pos, newIndex);
+                newVertices.Add(pos);
+                oldToNewIndexMap[i] = newIndex;
+                newIndex++;
+            }
+            else
+            {
+                oldToNewIndexMap[i] = uniquePositions[pos];
+            }
+        }
+
+        // Second pass: Create the new triangle index list using the remapped indices
+        var newTriangleIndices = new int[triangulation.indices.Length];
+        for (int i = 0; i < triangulation.indices.Length; i++)
+        {
+            int oldIndex = triangulation.indices[i];
+            newTriangleIndices[i] = oldToNewIndexMap[oldIndex];
+        }
+
+        Debug.Log($"Vertex welding complete: {triangulation.vertices.Length} original -> {newVertices.Count} unique.");
+
+        return (newVertices.ToArray(), newTriangleIndices);
+    }
+
+    private void VisualizeNavmesh(Vector3[] vertices, int[] indices)
     {
         // Draw a triangle for each node
         List<Vector3> combinedVertices = new List<Vector3>();
@@ -127,9 +158,9 @@ public class Pathfinder : MonoBehaviour
             Color triangleColor = new Color(Random.value, Random.value, Random.value);
 
             // Get the vertices for the current triangle
-            Vector3 v1 = triangulation.vertices[node.Vertices[0]];
-            Vector3 v2 = triangulation.vertices[node.Vertices[1]];
-            Vector3 v3 = triangulation.vertices[node.Vertices[2]];
+            Vector3 v1 = vertices[node.Vertices[0]];
+            Vector3 v2 = vertices[node.Vertices[1]];
+            Vector3 v3 = vertices[node.Vertices[2]];
 
             // Add these vertices to our combined list
             combinedVertices.Add(v1);
@@ -158,11 +189,12 @@ public class Pathfinder : MonoBehaviour
         meshFilter.mesh = finalMesh;
         meshRenderer.material = navMeshMaterial;
 
-        Debug.Log($"NavMesh triangulation generated: {triangulation.vertices.Length} vertices, {triangulation.indices.Length / 3} triangles.");
+        Debug.Log($"NavMesh triangulation generated: {vertices.Length} vertices, {indices.Length / 3} triangles.");
         Debug.Log($"Generated {nodeList.Count} nodes with {nodeList.Sum(n => n.Neighbors.Count)} total neighbor connections.");
     }
 }
 
+// Representation of a node - in this case, a triangle in the NavMesh. However it should be treated like a waypoint system for all extents and purposes.
 public class Node
 {
     public int TriangleIndex;
@@ -170,7 +202,7 @@ public class Node
     public List<Node> Neighbors;
     public int[] Vertices; // The 3 vertex indices of this triangle
 
-    // You can also add properties for your A* algorithm here
+    // A* algorithm here
     public float GCost;
     public float HCost;
     public Node Parent;
