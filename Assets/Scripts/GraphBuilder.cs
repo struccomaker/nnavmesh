@@ -196,6 +196,11 @@ public class GraphBuilder : MonoBehaviour
         Debug.Log($"NavMesh triangulation generated: {vertices.Length} vertices, {indices.Length / 3} triangles.");
         Debug.Log($"Generated {nodeList.Count} nodes with {nodeList.Sum(n => n.Neighbors.Count)} total neighbor connections.");
     }
+
+    public List<Node> GetAllNodes()
+    {
+        return nodeList;
+    }
 }
 
 // Representation of a node - in this case, a triangle in the NavMesh. However it should be treated like a waypoint system for all extents and purposes.

@@ -1,9 +1,23 @@
+using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 
 public class Pathfinder : MonoBehaviour
 {
     [SerializeField]
     private GraphBuilder graphBuilder;
+
+    [Header("Pathfinding Visualization")]
+    [SerializeField]
+    private LineRenderer pathLineRenderer;
+    [SerializeField]
+    private GameObject startMarker;
+    [SerializeField]
+    private GameObject endMarker;
+
+    private List<Node> currentPath = new List<Node>();
+    private Vector3? startPosition;
+    private Vector3? endPosition;
 
     void Start()
     {
@@ -16,33 +30,269 @@ public class Pathfinder : MonoBehaviour
                 return;
             }
         }
+
+        SetupPathVisualization();
+    }
+
+    void SetupPathVisualization()
+    {
+        if (!pathLineRenderer)
+        {
+            GameObject pathObj = new GameObject("PathLine");
+            pathLineRenderer = pathObj.AddComponent<LineRenderer>();
+            Material lineMaterial = new Material(Shader.Find("Sprites/Default"));
+            lineMaterial.color = Color.yellow;
+            pathLineRenderer.material = lineMaterial;
+            pathLineRenderer.startWidth = 0.2f;
+            pathLineRenderer.endWidth = 0.2f;
+            pathLineRenderer.positionCount = 0;
+        }
+
+        if (!startMarker)
+        {
+            startMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            startMarker.name = "StartMarker";
+            startMarker.GetComponent<Renderer>().material.color = Color.green;
+            startMarker.transform.localScale = Vector3.one * 0.5f;
+            startMarker.SetActive(false);
+        }
+
+        if (!endMarker)
+        {
+            endMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            endMarker.name = "EndMarker";
+            endMarker.GetComponent<Renderer>().material.color = Color.red;
+            endMarker.transform.localScale = Vector3.one * 0.5f;
+            endMarker.SetActive(false);
+        }
     }
 
     void Update()
     {
-        // Just to test if identifying triangles works when sampling positions on the NavMesh.
+        // Left click to set start point, right click to set end point (probably a bad way to do so in unity lmao)
         if (Input.GetMouseButtonDown(0))
         {
-            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-            RaycastHit hit;
+            SetPathPoint(true); // Set start point
+        }
+        else if (Input.GetMouseButtonDown(1))
+        {
+            SetPathPoint(false); // Set end point
+        }
 
-            // Perform a raycast. Check if it hit something.
-            if (Physics.Raycast(ray, out hit))
+        // Press Space to calculate path
+        if (Input.GetKeyDown(KeyCode.Space) && startPosition.HasValue && endPosition.HasValue)
+        {
+            CalculatePath(startPosition.Value, endPosition.Value);
+        }
+
+        // Press C to clear path
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            ClearPath();
+        }
+    }
+
+    void SetPathPoint(bool isStart)
+    {
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        RaycastHit hit;
+
+        if (Physics.Raycast(ray, out hit))
+        {
+            Vector3 worldClickPoint = hit.point;
+
+            if (isStart)
             {
-                // We hit a collider! The world position is hit.point.
-                Vector3 worldClickPoint = hit.point;
+                startPosition = worldClickPoint;
+                startMarker.transform.position = worldClickPoint + Vector3.up * 0.1f;
+                startMarker.SetActive(true);
+                Debug.Log($"Start position set at: {worldClickPoint}");
+            }
+            else
+            {
+                endPosition = worldClickPoint;
+                endMarker.transform.position = worldClickPoint + Vector3.up * 0.1f;
+                endMarker.SetActive(true);
+                Debug.Log($"End position set at: {worldClickPoint}");
+            }
+        }
+    }
 
-                int triangleIndex = GetTriangleIndexFromPosition(worldClickPoint);
-                if (triangleIndex != -1)
+    public void CalculatePath(Vector3 startPos, Vector3 endPos)
+    {
+        // find the triangle nodes for start and end positions
+        int startTriangleIndex = GetTriangleIndexFromPosition(startPos);
+        int endTriangleIndex = GetTriangleIndexFromPosition(endPos);
+
+        if (startTriangleIndex == -1 || endTriangleIndex == -1)
+        {
+            Debug.LogError("Start or end position is not on the NavMesh!");
+            return;
+        }
+
+        Node startNode = GetNodeByTriangleIndex(startTriangleIndex);
+        Node endNode = GetNodeByTriangleIndex(endTriangleIndex);
+
+        if (startNode == null || endNode == null)
+        {
+            Debug.LogError("Could not find start or end node!");
+            return;
+        }
+
+        //  A* pathfinding (TODO GOAL BOUNDING)
+        List<Node> path = AStar(startNode, endNode);
+
+        if (path != null && path.Count > 0)
+        {
+            currentPath = path;
+            VisualizePath(startPos, endPos, path);
+            Debug.Log($"Path found with {path.Count} nodes!");
+        }
+        else
+        {
+            Debug.LogError("No path found!");
+            ClearPath();
+        }
+    }
+
+    // A* Algorithm 
+    public List<Node> AStar(Node startNode, Node targetNode)
+    {
+        List<Node> openSet = new List<Node>();
+        HashSet<Node> closedSet = new HashSet<Node>();
+
+        // Reset all nodes
+        ResetNodes();
+
+        openSet.Add(startNode);
+        startNode.GCost = 0;
+        startNode.HCost = GetDistance(startNode, targetNode);
+
+        while (openSet.Count > 0)
+        {
+            // find the node with the lowest FCost
+            Node currentNode = openSet[0];
+            for (int i = 1; i < openSet.Count; i++)
+            {
+                if (openSet[i].FCost < currentNode.FCost ||
+                    (openSet[i].FCost == currentNode.FCost && openSet[i].HCost < currentNode.HCost))
                 {
-                    Debug.Log($"Triangle index at mouse position: {triangleIndex}");
+                    currentNode = openSet[i];
                 }
-                else
+            }
+
+            openSet.Remove(currentNode);
+            closedSet.Add(currentNode);
+
+            // reach target, reconstruct the path
+            if (currentNode == targetNode)
+            {
+                return RetracePath(startNode, targetNode);
+            }
+
+            // check each neighbor
+            foreach (Node neighbor in currentNode.Neighbors)
+            {
+                if (closedSet.Contains(neighbor))
+                    continue;
+
+                float newCostToNeighbor = currentNode.GCost + GetDistance(currentNode, neighbor);
+
+                if (newCostToNeighbor < neighbor.GCost || !openSet.Contains(neighbor))
                 {
-                    Debug.Log("No NavMesh triangle found at mouse position (check ground collider).");
+                    neighbor.GCost = newCostToNeighbor;
+                    neighbor.HCost = GetDistance(neighbor, targetNode);
+                    neighbor.Parent = currentNode;
+
+                    if (!openSet.Contains(neighbor))
+                        openSet.Add(neighbor);
                 }
             }
         }
+
+        // no path found
+        return null;
+    }
+
+    // calculate distance between two nodes (Euclidean distance)
+    float GetDistance(Node nodeA, Node nodeB)
+    {
+        return Vector3.Distance(nodeA.Center, nodeB.Center);
+    }
+
+    // retrace the path from target back to start
+    List<Node> RetracePath(Node startNode, Node endNode)
+    {
+        List<Node> path = new List<Node>();
+        Node currentNode = endNode;
+
+        while (currentNode != startNode)
+        {
+            path.Add(currentNode);
+            currentNode = currentNode.Parent;
+        }
+        path.Add(startNode);
+
+        path.Reverse();
+        return path;
+    }
+
+    // reset all nodes for a fresh pathfinding calculation
+    void ResetNodes()
+    {
+        foreach (Node node in GetAllNodes())
+        {
+            node.GCost = float.MaxValue;
+            node.HCost = 0;
+            node.Parent = null;
+        }
+    }
+
+    // Get all nodes from the graph builder
+    List<Node> GetAllNodes()
+    {
+        return graphBuilder.GetAllNodes();
+    }
+
+    // getter triangle index
+    Node GetNodeByTriangleIndex(int triangleIndex)
+    {
+        List<Node> allNodes = GetAllNodes();
+        return allNodes.FirstOrDefault(node => node.TriangleIndex == triangleIndex);
+    }
+
+    // visualise the calculated path
+    void VisualizePath(Vector3 startPos, Vector3 endPos, List<Node> path)
+    {
+        if (path == null || path.Count == 0)
+        {
+            pathLineRenderer.positionCount = 0;
+            return;
+        }
+
+        List<Vector3> pathPoints = new List<Vector3>();
+        pathPoints.Add(startPos + Vector3.up * 0.1f);
+
+        foreach (Node node in path)
+        {
+            pathPoints.Add(node.Center + Vector3.up * 0.1f);
+        }
+
+        pathPoints.Add(endPos + Vector3.up * 0.1f);
+        pathLineRenderer.positionCount = pathPoints.Count;
+        pathLineRenderer.SetPositions(pathPoints.ToArray());
+    }
+
+
+    void ClearPath()
+    {
+        currentPath.Clear();
+        pathLineRenderer.positionCount = 0;
+        startMarker.SetActive(false);
+        endMarker.SetActive(false);
+        startPosition = null;
+        endPosition = null;
+        Debug.Log("Path cleared!");
     }
 
     // Helper function to get triangle index from a world position so we can get the triangle target
@@ -84,6 +334,4 @@ public class Pathfinder : MonoBehaviour
     {
         return (p1.x - p3.x) * (p2.z - p3.z) - (p2.x - p3.x) * (p1.z - p3.z);
     }
-
-    
 }
