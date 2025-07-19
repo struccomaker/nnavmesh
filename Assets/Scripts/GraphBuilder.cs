@@ -5,9 +5,74 @@ using UnityEngine.AI;
 using UnityEngine.UIElements;
 using System.Linq;
 
+public class Node
+{
+    public int TriangleIndex;
+    public Vector3 Center;
+    public List<Node> Neighbors;
+    public int[] Vertices; // The 3 vertex indices of this triangle
+
+    // A* algorithm properties
+    public float GCost;
+    public float HCost;
+    public Node Parent;
+    public float FCost => GCost + HCost;
+
+    // Goal bounding data - bounding box for each neighbor edge
+    public Dictionary<Node, BoundingBox> EdgeBoundingBoxes;
+
+    public Node(int triangleIndex, Vector3 center, int[] vertices)
+    {
+        TriangleIndex = triangleIndex;
+        Center = center;
+        Vertices = vertices;
+        Neighbors = new List<Node>();
+        EdgeBoundingBoxes = new Dictionary<Node, BoundingBox>();
+    }
+}
+
+// Bounding box structure for goal bounding
+[System.Serializable]
+public struct BoundingBox
+{
+    public float left, right, top, bottom;
+
+    public BoundingBox(float left, float right, float top, float bottom)
+    {
+        this.left = left;
+        this.right = right;
+        this.top = top;
+        this.bottom = bottom;
+    }
+
+    public bool Contains(Vector3 point)
+    {
+        return point.x >= left && point.x <= right &&
+               point.z >= bottom && point.z <= top;
+    }
+
+    public void ExpandToInclude(Vector3 point)
+    {
+        left = Mathf.Min(left, point.x);
+        right = Mathf.Max(right, point.x);
+        bottom = Mathf.Min(bottom, point.z);
+        top = Mathf.Max(top, point.z);
+    }
+
+    public static BoundingBox FromPoint(Vector3 point)
+    {
+        return new BoundingBox(point.x, point.x, point.z, point.z);
+    }
+
+}
+
+
 public class GraphBuilder : MonoBehaviour
 {
     public Material navMeshMaterial; // Default legacy materials that are unlit can be used here. We want to use the vertex colors to visualize the triangles.
+    [Header("Goal Bounding")]
+    [SerializeField] private bool enableGoalBounding = true;
+    [SerializeField] private bool showPreprocessingProgress = true;
     // Draw debugs
     MeshFilter meshFilter;
     MeshRenderer meshRenderer;
@@ -17,6 +82,8 @@ public class GraphBuilder : MonoBehaviour
     // Triangulation data
     public Vector3[] weldedVertices;
     public int[] newIndices;
+
+    private bool goalBoundingPreprocessed = false;
     
     void Start()
     {
@@ -35,11 +102,20 @@ public class GraphBuilder : MonoBehaviour
         }
 
         GenerateNavMeshMesh();
+        if (enableGoalBounding)
+        {
+            StartCoroutine(PreprocessGoalBounding());
+        }
+        else
+        {
+            goalBoundingPreprocessed = true; 
+        }
     }
 
     [ContextMenu("Regen Navmesh")]
     void GenerateNavMeshMesh()
     {
+        nodeList.Clear();
         NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
 
         (weldedVertices, newIndices) = WeldVertices(triangulation);
@@ -98,7 +174,133 @@ public class GraphBuilder : MonoBehaviour
         }
 
         VisualizeNavmesh(weldedVertices, newIndices);
+        goalBoundingPreprocessed = false;
     }
+
+    System.Collections.IEnumerator PreprocessGoalBounding()
+    {
+        Debug.Log("Starting Goal Bounding preprocessing...");
+        float startTime = Time.realtimeSinceStartup;
+
+        int processedNodes = 0;
+        int totalNodes = nodeList.Count;
+
+        foreach (Node startNode in nodeList)
+        {
+            // Run Dijkstra floodfill from this node
+            var reachableNodes = DijkstraFloodfill(startNode);
+
+            // Build bounding boxes for each edge
+            BuildBoundingBoxesForNode(startNode, reachableNodes);
+
+            processedNodes++;
+
+            if (showPreprocessingProgress && processedNodes % 10 == 0)
+            {
+                Debug.Log($"Goal Bounding Progress: {processedNodes}/{totalNodes} nodes processed");
+                yield return null; // Allow Unity to update
+            }
+        }
+
+        float endTime = Time.realtimeSinceStartup;
+        goalBoundingPreprocessed = true;
+
+        Debug.Log($"Goal Bounding preprocessing completed in {endTime - startTime:F2} seconds");
+        Debug.Log($"Processed {totalNodes} nodes with {nodeList.Sum(n => n.EdgeBoundingBoxes.Count)} bounding boxes");
+    }
+
+    // Dijkstra floodfill to find all reachable nodes and their optimal starting edges
+    Dictionary<Node, Node> DijkstraFloodfill(Node startNode)
+    {
+        var distances = new Dictionary<Node, float>();
+        var startingEdges = new Dictionary<Node, Node>(); // Maps node to the neighbor from start that leads to it
+        var openSet = new List<Node>();
+        var closedSet = new HashSet<Node>();
+
+        // Initialize
+        distances[startNode] = 0f;
+        openSet.Add(startNode);
+
+        while (openSet.Count > 0)
+        {
+            // Find node with minimum distance
+            Node current = openSet[0];
+            for (int i = 1; i < openSet.Count; i++)
+            {
+                if (distances[openSet[i]] < distances[current])
+                    current = openSet[i];
+            }
+
+            openSet.Remove(current);
+            closedSet.Add(current);
+
+            foreach (Node neighbor in current.Neighbors)
+            {
+                if (closedSet.Contains(neighbor))
+                    continue;
+
+                float newDistance = distances[current] + Vector3.Distance(current.Center, neighbor.Center);
+
+                if (!distances.ContainsKey(neighbor) || newDistance < distances[neighbor])
+                {
+                    distances[neighbor] = newDistance;
+
+                    // Track which starting edge leads to this neighbor
+                    if (current == startNode)
+                    {
+                        startingEdges[neighbor] = neighbor; // Direct neighbor
+                    }
+                    else
+                    {
+                        startingEdges[neighbor] = startingEdges[current]; // Inherit starting edge
+                    }
+
+                    if (!openSet.Contains(neighbor))
+                        openSet.Add(neighbor);
+                }
+            }
+        }
+
+        return startingEdges;
+    }
+
+    // Build bounding boxes for each edge of a node
+    void BuildBoundingBoxesForNode(Node startNode, Dictionary<Node, Node> reachableNodes)
+    {
+        // Group reachable nodes by their starting edge
+        var edgeGroups = new Dictionary<Node, List<Node>>();
+
+        foreach (var kvp in reachableNodes)
+        {
+            Node reachableNode = kvp.Key;
+            Node startingEdge = kvp.Value;
+
+            if (!edgeGroups.ContainsKey(startingEdge))
+                edgeGroups[startingEdge] = new List<Node>();
+
+            edgeGroups[startingEdge].Add(reachableNode);
+        }
+
+        // Create bounding box for each edge group
+        foreach (var edgeGroup in edgeGroups)
+        {
+            Node edgeNode = edgeGroup.Key;
+            List<Node> nodesInGroup = edgeGroup.Value;
+
+            if (nodesInGroup.Count == 0) continue;
+
+            // Create bounding box containing all nodes reachable through this edge
+            BoundingBox boundingBox = BoundingBox.FromPoint(nodesInGroup[0].Center);
+
+            foreach (Node node in nodesInGroup)
+            {
+                boundingBox.ExpandToInclude(node.Center);
+            }
+
+            startNode.EdgeBoundingBoxes[edgeNode] = boundingBox;
+        }
+    }
+
 
     void Update()
     {
@@ -111,6 +313,23 @@ public class GraphBuilder : MonoBehaviour
             }
         }
     }
+
+    // Helper methods
+    public List<Node> GetAllNodes()
+    {
+        return nodeList;
+    }
+
+    public bool IsGoalBoundingReady()
+    {
+        return goalBoundingPreprocessed;
+    }
+
+    public bool IsGoalBoundingEnabled()
+    {
+        return enableGoalBounding;
+    }
+
 
     // Helper welder function to merge vertices in the same spot that aren't the same index
     private (Vector3[] weldedVertices, int[] newTriangleIndices) WeldVertices(NavMeshTriangulation triangulation)
@@ -197,31 +416,6 @@ public class GraphBuilder : MonoBehaviour
         Debug.Log($"Generated {nodeList.Count} nodes with {nodeList.Sum(n => n.Neighbors.Count)} total neighbor connections.");
     }
 
-    public List<Node> GetAllNodes()
-    {
-        return nodeList;
-    }
+
 }
 
-// Representation of a node - in this case, a triangle in the NavMesh. However it should be treated like a waypoint system for all extents and purposes.
-public class Node
-{
-    public int TriangleIndex;
-    public Vector3 Center;
-    public List<Node> Neighbors;
-    public int[] Vertices; // The 3 vertex indices of this triangle
-
-    // A* algorithm here
-    public float GCost;
-    public float HCost;
-    public Node Parent;
-    public float FCost => GCost + HCost; // (=>) means readonly that is computed and returned
-
-    public Node(int triangleIndex, Vector3 center, int[] vertices)
-    {
-        TriangleIndex = triangleIndex;
-        Center = center;
-        Vertices = vertices;
-        Neighbors = new List<Node>();
-    }
-}

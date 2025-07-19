@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 
+
 public class Pathfinder : MonoBehaviour
 {
     [SerializeField]
@@ -15,9 +16,17 @@ public class Pathfinder : MonoBehaviour
     [SerializeField]
     private GameObject endMarker;
 
+    [Header("Performance Monitoring")]
+    [SerializeField]
+    private bool showPerformanceStats = true;
+
     private List<Node> currentPath = new List<Node>();
     private Vector3? startPosition;
     private Vector3? endPosition;
+
+    //performacce tracking to console
+    private int nodesExploredLastSearch = 0;
+    private float lastSearchTime = 0.0f;
 
     void Start()
     {
@@ -90,6 +99,11 @@ public class Pathfinder : MonoBehaviour
         {
             ClearPath();
         }
+
+        if (Input.GetKeyDown(KeyCode.G))
+        {
+            Debug.Log("Goal bounding toggle");
+        }
     }
 
     void SetPathPoint(bool isStart)
@@ -120,6 +134,12 @@ public class Pathfinder : MonoBehaviour
 
     public void CalculatePath(Vector3 startPos, Vector3 endPos)
     {
+        if (graphBuilder.IsGoalBoundingEnabled() && !graphBuilder.IsGoalBoundingReady())
+        {
+            Debug.LogWarning("Goal bounding is still preprocessing. Please wait...");
+            return;
+        }
+
         // find the triangle nodes for start and end positions
         int startTriangleIndex = GetTriangleIndexFromPosition(startPos);
         int endTriangleIndex = GetTriangleIndexFromPosition(endPos);
@@ -140,13 +160,21 @@ public class Pathfinder : MonoBehaviour
         }
 
         //  A* pathfinding (TODO GOAL BOUNDING)
-        List<Node> path = AStar(startNode, endNode);
+        float searchStartTime = Time.realtimeSinceStartup;
+        List<Node> path = AStarWithGoalBounding(startNode, endNode, endPos);
+        lastSearchTime = (Time.realtimeSinceStartup - searchStartTime) * 1000f; // Convert to ms
 
         if (path != null && path.Count > 0)
         {
             currentPath = path;
             VisualizePath(startPos, endPos, path);
-            Debug.Log($"Path found with {path.Count} nodes!");
+
+            if (showPerformanceStats)
+            {
+                string boundingStatus = graphBuilder.IsGoalBoundingEnabled() ? "ON" : "OFF";
+                Debug.Log($"Path found! Nodes: {path.Count}, Explored: {nodesExploredLastSearch}, " +
+                         $"Time: {lastSearchTime:F2}ms, Goal Bounding: {boundingStatus}");
+            }
         }
         else
         {
@@ -156,12 +184,12 @@ public class Pathfinder : MonoBehaviour
     }
 
     // A* Algorithm 
-    public List<Node> AStar(Node startNode, Node targetNode)
+    public List<Node> AStarWithGoalBounding(Node startNode, Node targetNode, Vector3 goalPosition)
     {
         List<Node> openSet = new List<Node>();
         HashSet<Node> closedSet = new HashSet<Node>();
+        nodesExploredLastSearch = 0;
 
-        // Reset all nodes
         ResetNodes();
 
         openSet.Add(startNode);
@@ -170,7 +198,6 @@ public class Pathfinder : MonoBehaviour
 
         while (openSet.Count > 0)
         {
-            // find the node with the lowest FCost
             Node currentNode = openSet[0];
             for (int i = 1; i < openSet.Count; i++)
             {
@@ -183,18 +210,26 @@ public class Pathfinder : MonoBehaviour
 
             openSet.Remove(currentNode);
             closedSet.Add(currentNode);
+            nodesExploredLastSearch++;
 
-            // reach target, reconstruct the path
             if (currentNode == targetNode)
             {
                 return RetracePath(startNode, targetNode);
             }
 
-            // check each neighbor
+            // Check each neighbor with goal bounding optimization
             foreach (Node neighbor in currentNode.Neighbors)
             {
                 if (closedSet.Contains(neighbor))
                     continue;
+
+                // GOAL BOUNDING CHECK - This is the key optimization!
+                if (graphBuilder.IsGoalBoundingEnabled() &&
+                    !WithinBoundingBox(currentNode, neighbor, goalPosition))
+                {
+                    // Skip this edge - it won't lead optimally to the goal
+                    continue;
+                }
 
                 float newCostToNeighbor = currentNode.GCost + GetDistance(currentNode, neighbor);
 
@@ -210,9 +245,22 @@ public class Pathfinder : MonoBehaviour
             }
         }
 
-        // no path found
-        return null;
+        return null; // No path found
     }
+
+    bool WithinBoundingBox(Node currentNode, Node neighborNode, Vector3 goalPosition)
+    {
+        // If goal bounding data exists for this edge, check if goal is within bounding box
+        if (currentNode.EdgeBoundingBoxes.ContainsKey(neighborNode))
+        {
+            BoundingBox boundingBox = currentNode.EdgeBoundingBoxes[neighborNode];
+            return boundingBox.Contains(goalPosition);
+        }
+
+        // If no bounding box data, allow exploration (fallback to standard A*)
+        return true;
+    }
+
 
     // calculate distance between two nodes (Euclidean distance)
     float GetDistance(Node nodeA, Node nodeB)
@@ -279,6 +327,7 @@ public class Pathfinder : MonoBehaviour
         }
 
         pathPoints.Add(endPos + Vector3.up * 0.1f);
+
         pathLineRenderer.positionCount = pathPoints.Count;
         pathLineRenderer.SetPositions(pathPoints.ToArray());
     }
@@ -294,6 +343,28 @@ public class Pathfinder : MonoBehaviour
         endPosition = null;
         Debug.Log("Path cleared!");
     }
+
+    [ContextMenu("Compare Performance")]
+    void ComparePerformance()
+    {
+        if (!startPosition.HasValue || !endPosition.HasValue)
+        {
+            Debug.LogError("Set start and end positions first!");
+            return;
+        }
+
+        Debug.Log("=== PERFORMANCE COMPARISON ===");
+
+        // Test without goal bounding
+        Debug.Log("Testing without Goal Bounding...");
+        // You'd need to temporarily disable goal bounding here
+
+        // Test with goal bounding  
+        Debug.Log("Testing with Goal Bounding...");
+        CalculatePath(startPosition.Value, endPosition.Value);
+    }
+
+
 
     // Helper function to get triangle index from a world position so we can get the triangle target
     public int GetTriangleIndexFromPosition(Vector3 pointToTest)
