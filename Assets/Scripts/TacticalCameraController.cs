@@ -15,6 +15,7 @@ public class TacticalCameraController : MonoBehaviour
     [SerializeField] private CameraMode currentMode = CameraMode.Tactical;
     [SerializeField] private Transform playerTarget;
     [SerializeField] private Vector3 playerFollowOffset = new Vector3(0, 5, -5);
+    [SerializeField] private Vector3 firstPersonOffset = new Vector3(0, 1.6f, 0);
     [SerializeField] private float followSmoothTime = 0.3f;
     [SerializeField] private Vector3 tacticalOverviewPosition = new Vector3(0, 25, 0);
     [SerializeField] private Vector3 tacticalOverviewRotation = new Vector3(90, 0, 0);
@@ -35,8 +36,9 @@ public class TacticalCameraController : MonoBehaviour
 
     public enum CameraMode
     {
-        Tactical,    // Free-flying tactical overview
-        PlayerFollow // Follow player with offset
+        Tactical,      // Free-flying tactical overview
+        PlayerFollow,  // Follow player with offset
+        FirstPerson    // First-person view from player's eyes
     }
 
     void Start()
@@ -54,9 +56,13 @@ public class TacticalCameraController : MonoBehaviour
         {
             InitializeTacticalMode();
         }
-        else
+        else if (currentMode == CameraMode.PlayerFollow)
         {
             InitializePlayerFollowMode();
+        }
+        else
+        {
+            InitializeFirstPersonMode();
         }
     }
 
@@ -77,6 +83,9 @@ public class TacticalCameraController : MonoBehaviour
             case CameraMode.PlayerFollow:
                 UpdatePlayerFollowMode();
                 break;
+            case CameraMode.FirstPerson:
+                UpdateFirstPersonMode();
+                break;
         }
     }
 
@@ -89,9 +98,16 @@ public class TacticalCameraController : MonoBehaviour
             InitializePlayerFollowMode();
             Debug.Log("Camera Mode: Player Follow");
         }
+        else if (currentMode == CameraMode.PlayerFollow)
+        {
+            // Switch to first person
+            currentMode = CameraMode.FirstPerson;
+            InitializeFirstPersonMode();
+            Debug.Log("Camera Mode: First Person");
+        }
         else
         {
-            // Switch to tactical
+            // Switch back to tactical
             currentMode = CameraMode.Tactical;
             InitializeTacticalMode();
             Debug.Log("Camera Mode: Tactical Overview");
@@ -118,6 +134,16 @@ public class TacticalCameraController : MonoBehaviour
             currentFollowOffset = playerFollowOffset;
             transform.position = playerTarget.position + currentFollowOffset;
             transform.LookAt(playerTarget.position + Vector3.up * 1.5f);
+        }
+    }
+
+    void InitializeFirstPersonMode()
+    {
+        if (playerTarget)
+        {
+            // Position camera at player's eye level
+            transform.position = playerTarget.position + firstPersonOffset;
+            transform.rotation = playerTarget.rotation;
         }
     }
 
@@ -208,6 +234,73 @@ public class TacticalCameraController : MonoBehaviour
         }
     }
 
+    void UpdateFirstPersonMode()
+    {
+        if (!playerTarget) return;
+
+        // Position camera at player's eye level with collision check
+        Vector3 desiredPosition = playerTarget.position + firstPersonOffset;
+
+        // Check for wall collision and adjust camera position
+        Vector3 adjustedPosition = CheckCameraCollision(desiredPosition);
+        transform.position = adjustedPosition;
+
+        // First-person mouse look
+        if (Input.GetMouseButton(1))
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+
+            float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * 0.5f * Time.deltaTime;
+            float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * 0.5f * Time.deltaTime;
+
+            // Rotate camera for mouse look
+            yaw += mouseX;
+            pitch -= mouseY;
+            pitch = Mathf.Clamp(pitch, -90f, 90f);
+
+            transform.rotation = Quaternion.Euler(pitch, yaw, 0);
+
+            // Also rotate the player to match camera yaw
+            if (playerTarget)
+            {
+                playerTarget.rotation = Quaternion.Euler(0, yaw, 0);
+            }
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+
+            // Sync camera rotation with player rotation when not mouse looking
+            Vector3 playerRotation = playerTarget.rotation.eulerAngles;
+            yaw = playerRotation.y;
+            transform.rotation = Quaternion.Euler(pitch, yaw, 0);
+        }
+    }
+
+    Vector3 CheckCameraCollision(Vector3 desiredPosition)
+    {
+        // Cast from player position to desired camera position
+        Vector3 playerPos = playerTarget.position + Vector3.up * 0.5f; // Slightly above ground
+        Vector3 direction = (desiredPosition - playerPos).normalized;
+        float maxDistance = Vector3.Distance(playerPos, desiredPosition);
+
+        // Buffer distance to keep camera away from walls
+        float bufferDistance = 0.3f;
+
+        // Raycast to check for walls
+        if (Physics.Raycast(playerPos, direction, out RaycastHit hit, maxDistance))
+        {
+            // If we hit something, position camera at hit point minus buffer
+            float safeDistance = Mathf.Max(0.1f, hit.distance - bufferDistance);
+            return playerPos + direction * safeDistance;
+        }
+
+        // No collision, use desired position
+        return desiredPosition;
+    }
+
     public CameraMode GetCurrentMode()
     {
         return currentMode;
@@ -221,11 +314,16 @@ public class TacticalCameraController : MonoBehaviour
     void OnGUI()
     {
         // Display current camera mode
-        GUILayout.BeginArea(new Rect(10, 10, 200, 60));
+        GUILayout.BeginArea(new Rect(1, 0, 10, 200, 80));
         GUILayout.BeginVertical(GUI.skin.box);
 
         GUILayout.Label($"Camera Mode: {currentMode}", GUI.skin.label);
-        GUILayout.Label("Press Z to switch modes", GUI.skin.label);
+        GUILayout.Label("Press Z to cycle modes", GUI.skin.label);
+
+        if (currentMode == CameraMode.FirstPerson)
+        {
+            GUILayout.Label("Right-click: Mouse look", GUI.skin.label);
+        }
 
         GUILayout.EndVertical();
         GUILayout.EndArea();

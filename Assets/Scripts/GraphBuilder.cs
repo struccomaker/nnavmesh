@@ -1,91 +1,156 @@
 using System.Collections.Generic;
-using UnityEditor.Rendering.Universal;
 using UnityEngine;
 using UnityEngine.AI;
-using UnityEngine.UIElements;
 using System.Linq;
 
-public class Node
+// Enhanced Node class with tactical weights
+public class TacticalNode
 {
     public int TriangleIndex;
     public Vector3 Center;
-    public List<Node> Neighbors;
-    public int[] Vertices; // The 3 vertex indices of this triangle
+    public List<TacticalNode> Neighbors;
+    public int[] Vertices;
 
-    // A* algorithm properties
+    // A* properties
     public float GCost;
     public float HCost;
-    public Node Parent;
-    public float FCost => GCost + HCost;
+    public float TacticalWeight; // W in F = G + H + W
+    public TacticalNode Parent;
+    public float FCost => GCost + HCost + TacticalWeight;
 
-    // Goal bounding data - bounding box for each neighbor edge
-    public Dictionary<Node, BoundingBox> EdgeBoundingBoxes;
+    // Tactical properties
+    public TacticalType TacticalType;
+    public float CoverValue;     // -2 to -5 for cover bonus
+    public float ThreatLevel;    // +3 to +10 for threat penalty
+    public float StrategicValue; // Strategic modifiers
+    public bool HasLineOfSight;
+    public List<GameObject> NearbyEnemies;
+    public List<GameObject> NearbyCovers;
 
-    public Node(int triangleIndex, Vector3 center, int[] vertices)
+    // Goal bounding
+    public Dictionary<TacticalNode, BoundingBox> EdgeBoundingBoxes;
+
+    public TacticalNode(int triangleIndex, Vector3 center, int[] vertices)
     {
         TriangleIndex = triangleIndex;
         Center = center;
         Vertices = vertices;
-        Neighbors = new List<Node>();
-        EdgeBoundingBoxes = new Dictionary<Node, BoundingBox>();
+        Neighbors = new List<TacticalNode>();
+        EdgeBoundingBoxes = new Dictionary<TacticalNode, BoundingBox>();
+        NearbyEnemies = new List<GameObject>();
+        NearbyCovers = new List<GameObject>();
+        TacticalType = TacticalType.Neutral;
+        UpdateTacticalWeights();
+    }
+
+    public void UpdateTacticalWeights()
+    {
+        TacticalWeight = 0f;
+
+        // Cover bonus: -2 to -5
+        if (CoverValue > 0)
+        {
+            TacticalWeight -= Mathf.Clamp(CoverValue * 2f, 2f, 5f);
+        }
+
+        // Threat penalty: +3 to +10
+        if (ThreatLevel > 0)
+        {
+            TacticalWeight += Mathf.Clamp(ThreatLevel * 3f, 3f, 10f);
+        }
+
+        // Strategic value modifiers
+        TacticalWeight += StrategicValue;
+
+        // Update tactical type based on weights
+        if (TacticalWeight < -2f)
+            TacticalType = TacticalType.Safe;
+        else if (TacticalWeight > 3f)
+            TacticalType = TacticalType.Danger;
+        else
+            TacticalType = TacticalType.Neutral;
+    }
+
+    public Color GetTacticalColor()
+    {
+        switch (TacticalType)
+        {
+            case TacticalType.Safe: return Color.green;
+            case TacticalType.Danger: return Color.red;
+            case TacticalType.Cover: return Color.blue;
+            default: return Color.gray;
+        }
     }
 }
 
-// Bounding box structure for goal bounding
-[System.Serializable]
-public struct BoundingBox
+public enum TacticalType
 {
-    public float left, right, top, bottom;
-
-    public BoundingBox(float left, float right, float top, float bottom)
-    {
-        this.left = left;
-        this.right = right;
-        this.top = top;
-        this.bottom = bottom;
-    }
-
-    public bool Contains(Vector3 point)
-    {
-        return point.x >= left && point.x <= right &&
-               point.z >= bottom && point.z <= top;
-    }
-
-    public void ExpandToInclude(Vector3 point)
-    {
-        left = Mathf.Min(left, point.x);
-        right = Mathf.Max(right, point.x);
-        bottom = Mathf.Min(bottom, point.z);
-        top = Mathf.Max(top, point.z);
-    }
-
-    public static BoundingBox FromPoint(Vector3 point)
-    {
-        return new BoundingBox(point.x, point.x, point.z, point.z);
-    }
-
+    Safe,     // Green - Low threat, good cover
+    Neutral,  // Gray - Standard movement
+    Danger,   // Red - High threat, avoid
+    Cover     // Blue - Excellent cover position
 }
 
-
-public class GraphBuilder : MonoBehaviour
+public class TacticalNavMeshBuilder : MonoBehaviour
 {
-    public Material navMeshMaterial; // Default legacy materials that are unlit can be used here. We want to use the vertex colors to visualize the triangles.
+    [Header("NavMesh Visualization")]
+    public Material navMeshMaterial;
+    [SerializeField] private bool showTacticalWeights = true;
+    [SerializeField] private bool showThreatZones = true;
+    [SerializeField] private bool showCoverZones = true;
+
+    [Header("Tactical Parameters")]
+    [SerializeField] private float coverDetectionRadius = 3f;
+    [SerializeField] private float threatDetectionRadius = 5f;
+    [SerializeField] private LayerMask coverLayerMask = -1;
+    [SerializeField] private LayerMask enemyLayerMask = -1;
+
     [Header("Goal Bounding")]
     [SerializeField] private bool enableGoalBounding = true;
-    [SerializeField] private bool showPreprocessingProgress = true;
-    // Draw debugs
-    MeshFilter meshFilter;
-    MeshRenderer meshRenderer;
-    // We must represent the Nodes ourselves so that we can perform A* and goal bounding on our own
-    List<Node> nodeList = new List<Node>();
+    [SerializeField] private BoundingStrategy boundingStrategy = BoundingStrategy.Adaptive;
+    [SerializeField] private float baseBoundingRadius = 10f;
 
-    // Triangulation data
+    [Header("Performance Monitoring")]
+    [SerializeField] private bool showPerformanceMetrics = true;
+
+    // Components
+    private MeshFilter meshFilter;
+    private MeshRenderer meshRenderer;
+
+    // Graph data
+    private List<TacticalNode> nodeList = new List<TacticalNode>();
     public Vector3[] weldedVertices;
     public int[] newIndices;
 
+    // Tactical data
+    private List<GameObject> enemies = new List<GameObject>();
+    private List<GameObject> coverObjects = new List<GameObject>();
+
+    // Performance metrics
+    public int LastSearchNodesExplored { get; private set; }
+    public float LastSearchTime { get; private set; }
+
     private bool goalBoundingPreprocessed = false;
-    
+
     void Start()
+    {
+        SetupComponents();
+        GenerateNavMeshMesh();
+
+        if (enableGoalBounding)
+        {
+            StartCoroutine(PreprocessGoalBounding());
+        }
+        else
+        {
+            goalBoundingPreprocessed = true;
+        }
+
+        // Update tactical weights periodically
+        InvokeRepeating(nameof(UpdateAllTacticalWeights), 1f, 0.5f);
+    }
+
+    void SetupComponents()
     {
         meshFilter = GetComponent<MeshFilter>();
         if (!meshFilter) meshFilter = gameObject.AddComponent<MeshFilter>();
@@ -93,34 +158,42 @@ public class GraphBuilder : MonoBehaviour
         meshRenderer = GetComponent<MeshRenderer>();
         if (!meshRenderer) meshRenderer = gameObject.AddComponent<MeshRenderer>();
 
-        if (!navMeshMaterial) meshRenderer.material = navMeshMaterial;
-        else
+        if (navMeshMaterial)
         {
-            Debug.LogWarning("Please assign a material to the 'navMeshMaterial' field for visualization.");
-            meshRenderer.material = new Material(Shader.Find("Standard"));
-            meshRenderer.material.color = Color.blue;
-        }
-
-        GenerateNavMeshMesh();
-        if (enableGoalBounding)
-        {
-            StartCoroutine(PreprocessGoalBounding());
+            meshRenderer.material = navMeshMaterial;
         }
         else
         {
-            goalBoundingPreprocessed = true; 
+            CreateDefaultTacticalMaterial();
         }
     }
 
-    [ContextMenu("Regen Navmesh")]
+    void CreateDefaultTacticalMaterial()
+    {
+        Material tacticalMat = new Material(Shader.Find("Standard"));
+        tacticalMat.SetFloat("_Mode", 2); // Fade mode
+        tacticalMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        tacticalMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        tacticalMat.SetInt("_ZWrite", 0);
+        tacticalMat.EnableKeyword("_ALPHABLEND_ON");
+        tacticalMat.renderQueue = 3000;
+
+        Color matColor = Color.white;
+        matColor.a = 0.7f;
+        tacticalMat.color = matColor;
+
+        meshRenderer.material = tacticalMat;
+        navMeshMaterial = tacticalMat;
+    }
+
+    [ContextMenu("Regen NavMesh")]
     void GenerateNavMeshMesh()
     {
         nodeList.Clear();
         NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
-
         (weldedVertices, newIndices) = WeldVertices(triangulation);
 
-        // Calculate triangles from the data
+        // Create tactical nodes
         for (int i = 0; i < newIndices.Length / 3; i++)
         {
             int triIndex = i * 3;
@@ -135,125 +208,402 @@ public class GraphBuilder : MonoBehaviour
             Vector3 center = (v1 + v2 + v3) / 3f;
             int[] vertices = { v1Index, v2Index, v3Index };
 
-            nodeList.Add(new Node(i, center, vertices));
+            nodeList.Add(new TacticalNode(i, center, vertices));
         }
 
-        // Calculate neighbor edges
-        var edgeToTriangles = new Dictionary<string, List<Node>>();
-        foreach (Node node in nodeList)
+        // Connect neighbors
+        ConnectNeighbors();
+
+        // Calculate initial tactical weights
+        UpdateAllTacticalWeights();
+
+        // Visualize the navmesh with tactical colors
+        VisualizeTacticalNavmesh();
+
+        goalBoundingPreprocessed = false;
+    }
+
+    void ConnectNeighbors()
+    {
+        var edgeToTriangles = new Dictionary<string, List<TacticalNode>>();
+
+        foreach (TacticalNode node in nodeList)
         {
             for (int i = 0; i < 3; i++)
             {
-                // Get the two vertices that form an edge
                 int v1 = node.Vertices[i];
                 int v2 = node.Vertices[(i + 1) % 3];
-
-                // Create a consistent key for the edge regardless of vertex order
                 string edgeKey = v1 < v2 ? $"{v1}-{v2}" : $"{v2}-{v1}";
 
                 if (!edgeToTriangles.ContainsKey(edgeKey))
                 {
-                    edgeToTriangles[edgeKey] = new List<Node>();
+                    edgeToTriangles[edgeKey] = new List<TacticalNode>();
                 }
                 edgeToTriangles[edgeKey].Add(node);
             }
         }
 
-        // Connect neighbors on shared edges
         foreach (var edgePair in edgeToTriangles.Values)
         {
-            // If an edge is shared by two triangles, they are neighbors
             if (edgePair.Count == 2)
             {
-                Node node1 = edgePair[0];
-                Node node2 = edgePair[1];
-
+                TacticalNode node1 = edgePair[0];
+                TacticalNode node2 = edgePair[1];
                 node1.Neighbors.Add(node2);
                 node2.Neighbors.Add(node1);
             }
         }
-
-        VisualizeNavmesh(weldedVertices, newIndices);
-        goalBoundingPreprocessed = false;
     }
 
-    System.Collections.IEnumerator PreprocessGoalBounding()
+    void UpdateAllTacticalWeights()
     {
-        Debug.Log("Starting Goal Bounding preprocessing...");
-        float startTime = Time.realtimeSinceStartup;
+        // Find all enemies and cover objects
+        RefreshTacticalObjects();
 
-        int processedNodes = 0;
-        int totalNodes = nodeList.Count;
-
-        foreach (Node startNode in nodeList)
+        foreach (TacticalNode node in nodeList)
         {
-            // Run Dijkstra floodfill from this node
-            var reachableNodes = DijkstraFloodfill(startNode);
+            UpdateNodeTacticalData(node);
+        }
+    }
 
-            // Build bounding boxes for each edge
-            BuildBoundingBoxesForNode(startNode, reachableNodes);
+    void RefreshTacticalObjects()
+    {
+        enemies.Clear();
+        coverObjects.Clear();
 
-            processedNodes++;
+        // Find enemies by tag or layer
+        GameObject[] foundEnemies = GameObject.FindGameObjectsWithTag("Enemy");
+        enemies.AddRange(foundEnemies);
 
-            if (showPreprocessingProgress && processedNodes % 10 == 0)
+        // Find cover objects
+        GameObject[] foundCovers = GameObject.FindGameObjectsWithTag("Cover");
+        coverObjects.AddRange(foundCovers);
+    }
+
+    void UpdateNodeTacticalData(TacticalNode node)
+    {
+        // Reset values
+        node.NearbyEnemies.Clear();
+        node.NearbyCovers.Clear();
+        node.CoverValue = 0f;
+        node.ThreatLevel = 0f;
+        node.StrategicValue = 0f;
+
+        // Check for nearby cover
+        foreach (GameObject cover in coverObjects)
+        {
+            float distance = Vector3.Distance(node.Center, cover.transform.position);
+            if (distance <= coverDetectionRadius)
             {
-                Debug.Log($"Goal Bounding Progress: {processedNodes}/{totalNodes} nodes processed");
-                yield return null; // Allow Unity to update
+                node.NearbyCovers.Add(cover);
+                node.CoverValue += Mathf.Max(0, (coverDetectionRadius - distance) / coverDetectionRadius);
             }
         }
 
-        float endTime = Time.realtimeSinceStartup;
-        goalBoundingPreprocessed = true;
+        // Check for nearby threats
+        foreach (GameObject enemy in enemies)
+        {
+            float distance = Vector3.Distance(node.Center, enemy.transform.position);
+            if (distance <= threatDetectionRadius)
+            {
+                node.NearbyEnemies.Add(enemy);
+                node.ThreatLevel += Mathf.Max(0, (threatDetectionRadius - distance) / threatDetectionRadius);
+            }
+        }
 
-        Debug.Log($"Goal Bounding preprocessing completed in {endTime - startTime:F2} seconds");
-        Debug.Log($"Processed {totalNodes} nodes with {nodeList.Sum(n => n.EdgeBoundingBoxes.Count)} bounding boxes");
+        // Update tactical weights based on new data
+        node.UpdateTacticalWeights();
     }
 
-    // Dijkstra floodfill to find all reachable nodes and their optimal starting edges
-    Dictionary<Node, Node> DijkstraFloodfill(Node startNode)
+    // Tactical A* with Goal Bounding
+    public List<TacticalNode> FindTacticalPath(Vector3 startPos, Vector3 endPos, GameObject agent = null)
     {
-        var distances = new Dictionary<Node, float>();
-        var startingEdges = new Dictionary<Node, Node>(); // Maps node to the neighbor from start that leads to it
-        var openSet = new List<Node>();
-        var closedSet = new HashSet<Node>();
+        var searchStartTime = Time.realtimeSinceStartup;
 
-        // Initialize
+        int startTriangleIndex = GetTriangleIndexFromPosition(startPos);
+        int endTriangleIndex = GetTriangleIndexFromPosition(endPos);
+
+        if (startTriangleIndex == -1 || endTriangleIndex == -1)
+        {
+            Debug.LogError("Start or end position not on NavMesh!");
+            return null;
+        }
+
+        TacticalNode startNode = nodeList[startTriangleIndex];
+        TacticalNode endNode = nodeList[endTriangleIndex];
+
+        var path = TacticalAStarWithGoalBounding(startNode, endNode, endPos, agent);
+
+        LastSearchTime = (Time.realtimeSinceStartup - searchStartTime) * 1000f;
+
+        if (showPerformanceMetrics && path != null)
+        {
+            string boundingStatus = enableGoalBounding ? "ON" : "OFF";
+            Debug.Log($"Tactical Path: {path.Count} nodes, {LastSearchNodesExplored} explored, " +
+                     $"{LastSearchTime:F2}ms, Goal Bounding: {boundingStatus}");
+        }
+
+        return path;
+    }
+
+    List<TacticalNode> TacticalAStarWithGoalBounding(TacticalNode startNode, TacticalNode targetNode, Vector3 goalPosition, GameObject agent)
+    {
+        var openSet = new List<TacticalNode>();
+        var closedSet = new HashSet<TacticalNode>();
+        LastSearchNodesExplored = 0;
+
+        // Reset all nodes
+        foreach (TacticalNode node in nodeList)
+        {
+            node.GCost = float.MaxValue;
+            node.HCost = 0;
+            node.Parent = null;
+        }
+
+        openSet.Add(startNode);
+        startNode.GCost = 0;
+        startNode.HCost = Vector3.Distance(startNode.Center, targetNode.Center);
+
+        while (openSet.Count > 0)
+        {
+            TacticalNode currentNode = GetLowestFCostNode(openSet);
+
+            openSet.Remove(currentNode);
+            closedSet.Add(currentNode);
+            LastSearchNodesExplored++;
+
+            if (currentNode == targetNode)
+            {
+                return RetraceTacticalPath(startNode, targetNode);
+            }
+
+            foreach (TacticalNode neighbor in currentNode.Neighbors)
+            {
+                if (closedSet.Contains(neighbor))
+                    continue;
+
+                // Goal bounding check
+                if (enableGoalBounding && !WithinTacticalBounds(currentNode, neighbor, goalPosition, agent))
+                {
+                    continue;
+                }
+
+                float newCostToNeighbor = currentNode.GCost + GetTacticalMovementCost(currentNode, neighbor);
+
+                if (newCostToNeighbor < neighbor.GCost || !openSet.Contains(neighbor))
+                {
+                    neighbor.GCost = newCostToNeighbor;
+                    neighbor.HCost = Vector3.Distance(neighbor.Center, targetNode.Center);
+                    neighbor.Parent = currentNode;
+
+                    if (!openSet.Contains(neighbor))
+                        openSet.Add(neighbor);
+                }
+            }
+        }
+
+        return null; // No path found
+    }
+
+    TacticalNode GetLowestFCostNode(List<TacticalNode> openSet)
+    {
+        TacticalNode lowest = openSet[0];
+        for (int i = 1; i < openSet.Count; i++)
+        {
+            if (openSet[i].FCost < lowest.FCost ||
+                (openSet[i].FCost == lowest.FCost && openSet[i].HCost < lowest.HCost))
+            {
+                lowest = openSet[i];
+            }
+        }
+        return lowest;
+    }
+
+    float GetTacticalMovementCost(TacticalNode from, TacticalNode to)
+    {
+        float baseCost = Vector3.Distance(from.Center, to.Center);
+        float tacticalCost = to.TacticalWeight;
+
+        // Add transition costs (e.g., moving from cover to open)
+        if (from.TacticalType == TacticalType.Safe && to.TacticalType == TacticalType.Danger)
+        {
+            tacticalCost += 5f; // Penalty for leaving safety
+        }
+
+        return baseCost + tacticalCost;
+    }
+
+    bool WithinTacticalBounds(TacticalNode currentNode, TacticalNode neighborNode, Vector3 goalPosition, GameObject agent)
+    {
+        if (currentNode.EdgeBoundingBoxes.ContainsKey(neighborNode))
+        {
+            BoundingBox boundingBox = currentNode.EdgeBoundingBoxes[neighborNode];
+
+            // Adaptive bounding based on strategy
+            switch (boundingStrategy)
+            {
+                case BoundingStrategy.Fixed:
+                    return boundingBox.Contains(goalPosition);
+
+                case BoundingStrategy.Adaptive:
+                    // Expand bounds based on threat level
+                    return IsWithinAdaptiveBounds(boundingBox, goalPosition, currentNode);
+
+                case BoundingStrategy.Hierarchical:
+                    // Use different bounds for different tactical scenarios
+                    return IsWithinHierarchicalBounds(boundingBox, goalPosition, agent);
+            }
+        }
+
+        return true; // Default to allowing exploration
+    }
+
+    bool IsWithinAdaptiveBounds(BoundingBox box, Vector3 goal, TacticalNode node)
+    {
+        float expansionFactor = 1f + (node.ThreatLevel * 0.2f); // Expand bounds in high-threat areas
+        BoundingBox expandedBox = new BoundingBox(
+            box.left * expansionFactor,
+            box.right * expansionFactor,
+            box.top * expansionFactor,
+            box.bottom * expansionFactor
+        );
+        return expandedBox.Contains(goal);
+    }
+
+    bool IsWithinHierarchicalBounds(BoundingBox box, Vector3 goal, GameObject agent)
+    {
+        // Different bounding strategies based on agent type or game state
+        // This would be expanded based on specific tactical requirements
+        return box.Contains(goal);
+    }
+
+    List<TacticalNode> RetraceTacticalPath(TacticalNode startNode, TacticalNode endNode)
+    {
+        var path = new List<TacticalNode>();
+        TacticalNode currentNode = endNode;
+
+        while (currentNode != startNode)
+        {
+            path.Add(currentNode);
+            currentNode = currentNode.Parent;
+        }
+        path.Add(startNode);
+
+        path.Reverse();
+        return path;
+    }
+
+    void VisualizeTacticalNavmesh()
+    {
+        var combinedVertices = new List<Vector3>();
+        var combinedTriangles = new List<int>();
+        var combinedColors = new List<Color>();
+        int vertexIndex = 0;
+
+        foreach (TacticalNode node in nodeList)
+        {
+            Color tacticalColor = node.GetTacticalColor();
+            tacticalColor.a = 0.7f;
+
+            Vector3 v1 = weldedVertices[node.Vertices[0]];
+            Vector3 v2 = weldedVertices[node.Vertices[1]];
+            Vector3 v3 = weldedVertices[node.Vertices[2]];
+
+            combinedVertices.Add(v1);
+            combinedVertices.Add(v2);
+            combinedVertices.Add(v3);
+
+            combinedColors.Add(tacticalColor);
+            combinedColors.Add(tacticalColor);
+            combinedColors.Add(tacticalColor);
+
+            combinedTriangles.Add(vertexIndex);
+            combinedTriangles.Add(vertexIndex + 1);
+            combinedTriangles.Add(vertexIndex + 2);
+
+            vertexIndex += 3;
+        }
+
+        Mesh tacticalMesh = new Mesh();
+        tacticalMesh.vertices = combinedVertices.ToArray();
+        tacticalMesh.triangles = combinedTriangles.ToArray();
+        tacticalMesh.colors = combinedColors.ToArray();
+        tacticalMesh.RecalculateNormals();
+        meshFilter.mesh = tacticalMesh;
+    }
+
+    void Update()
+    {
+        if (showTacticalWeights)
+        {
+            DrawTacticalVisualization();
+        }
+    }
+
+    void DrawTacticalVisualization()
+    {
+        foreach (TacticalNode node in nodeList)
+        {
+            // Draw threat zones
+            if (showThreatZones && node.ThreatLevel > 0)
+            {
+                Debug.DrawRay(node.Center, Vector3.up * node.ThreatLevel, Color.red, 0.1f);
+            }
+
+            // Draw cover zones
+            if (showCoverZones && node.CoverValue > 0)
+            {
+                Debug.DrawRay(node.Center, Vector3.up * node.CoverValue, Color.blue, 0.1f);
+            }
+        }
+    }
+
+    // Goal bounding preprocessing (simplified for tactical context)
+    System.Collections.IEnumerator PreprocessGoalBounding()
+    {
+        Debug.Log("Preprocessing tactical goal bounding...");
+
+        foreach (TacticalNode startNode in nodeList)
+        {
+            var reachableNodes = TacticalDijkstraFloodfill(startNode);
+            BuildTacticalBoundingBoxes(startNode, reachableNodes);
+            yield return null;
+        }
+
+        goalBoundingPreprocessed = true;
+        Debug.Log("Tactical goal bounding preprocessing complete!");
+    }
+
+    Dictionary<TacticalNode, TacticalNode> TacticalDijkstraFloodfill(TacticalNode startNode)
+    {
+        var distances = new Dictionary<TacticalNode, float>();
+        var startingEdges = new Dictionary<TacticalNode, TacticalNode>();
+        var openSet = new List<TacticalNode>();
+        var closedSet = new HashSet<TacticalNode>();
+
         distances[startNode] = 0f;
         openSet.Add(startNode);
 
         while (openSet.Count > 0)
         {
-            // Find node with minimum distance
-            Node current = openSet[0];
-            for (int i = 1; i < openSet.Count; i++)
-            {
-                if (distances[openSet[i]] < distances[current])
-                    current = openSet[i];
-            }
-
+            TacticalNode current = GetLowestDistanceNode(openSet, distances);
             openSet.Remove(current);
             closedSet.Add(current);
 
-            foreach (Node neighbor in current.Neighbors)
+            foreach (TacticalNode neighbor in current.Neighbors)
             {
-                if (closedSet.Contains(neighbor))
-                    continue;
+                if (closedSet.Contains(neighbor)) continue;
 
-                float newDistance = distances[current] + Vector3.Distance(current.Center, neighbor.Center);
+                float newDistance = distances[current] + GetTacticalMovementCost(current, neighbor);
 
                 if (!distances.ContainsKey(neighbor) || newDistance < distances[neighbor])
                 {
                     distances[neighbor] = newDistance;
 
-                    // Track which starting edge leads to this neighbor
                     if (current == startNode)
-                    {
-                        startingEdges[neighbor] = neighbor; // Direct neighbor
-                    }
+                        startingEdges[neighbor] = neighbor;
                     else
-                    {
-                        startingEdges[neighbor] = startingEdges[current]; // Inherit starting edge
-                    }
+                        startingEdges[neighbor] = startingEdges[current];
 
                     if (!openSet.Contains(neighbor))
                         openSet.Add(neighbor);
@@ -264,35 +614,41 @@ public class GraphBuilder : MonoBehaviour
         return startingEdges;
     }
 
-    // Build bounding boxes for each edge of a node
-    void BuildBoundingBoxesForNode(Node startNode, Dictionary<Node, Node> reachableNodes)
+    TacticalNode GetLowestDistanceNode(List<TacticalNode> openSet, Dictionary<TacticalNode, float> distances)
     {
-        // Group reachable nodes by their starting edge
-        var edgeGroups = new Dictionary<Node, List<Node>>();
+        TacticalNode lowest = openSet[0];
+        for (int i = 1; i < openSet.Count; i++)
+        {
+            if (distances[openSet[i]] < distances[lowest])
+                lowest = openSet[i];
+        }
+        return lowest;
+    }
+
+    void BuildTacticalBoundingBoxes(TacticalNode startNode, Dictionary<TacticalNode, TacticalNode> reachableNodes)
+    {
+        var edgeGroups = new Dictionary<TacticalNode, List<TacticalNode>>();
 
         foreach (var kvp in reachableNodes)
         {
-            Node reachableNode = kvp.Key;
-            Node startingEdge = kvp.Value;
+            TacticalNode reachableNode = kvp.Key;
+            TacticalNode startingEdge = kvp.Value;
 
             if (!edgeGroups.ContainsKey(startingEdge))
-                edgeGroups[startingEdge] = new List<Node>();
+                edgeGroups[startingEdge] = new List<TacticalNode>();
 
             edgeGroups[startingEdge].Add(reachableNode);
         }
 
-        // Create bounding box for each edge group
         foreach (var edgeGroup in edgeGroups)
         {
-            Node edgeNode = edgeGroup.Key;
-            List<Node> nodesInGroup = edgeGroup.Value;
+            TacticalNode edgeNode = edgeGroup.Key;
+            List<TacticalNode> nodesInGroup = edgeGroup.Value;
 
             if (nodesInGroup.Count == 0) continue;
 
-            // Create bounding box containing all nodes reachable through this edge
             BoundingBox boundingBox = BoundingBox.FromPoint(nodesInGroup[0].Center);
-
-            foreach (Node node in nodesInGroup)
+            foreach (TacticalNode node in nodesInGroup)
             {
                 boundingBox.ExpandToInclude(node.Center);
             }
@@ -301,37 +657,43 @@ public class GraphBuilder : MonoBehaviour
         }
     }
 
+    // Helper methods
+    public List<TacticalNode> GetAllNodes() => nodeList;
+    public bool IsGoalBoundingReady() => goalBoundingPreprocessed;
 
-    void Update()
+    int GetTriangleIndexFromPosition(Vector3 pointToTest)
     {
-        // Draw all edge connections between nodes
-        foreach (Node node in nodeList)
+        for (int i = 0; i < newIndices.Length; i += 3)
         {
-            foreach (Node neighbor in node.Neighbors)
+            Vector3 v1 = weldedVertices[newIndices[i]];
+            Vector3 v2 = weldedVertices[newIndices[i + 1]];
+            Vector3 v3 = weldedVertices[newIndices[i + 2]];
+
+            if (IsPointInTriangle(pointToTest, v1, v2, v3))
             {
-                Debug.DrawLine(node.Center, neighbor.Center, Color.red);
+                return i / 3;
             }
         }
+        return -1;
     }
 
-    // Helper methods
-    public List<Node> GetAllNodes()
+    bool IsPointInTriangle(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
     {
-        return nodeList;
+        float d1 = Sign(p, a, b);
+        float d2 = Sign(p, b, c);
+        float d3 = Sign(p, c, a);
+
+        bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+        bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+        return !(has_neg && has_pos);
     }
 
-    public bool IsGoalBoundingReady()
+    float Sign(Vector3 p1, Vector3 p2, Vector3 p3)
     {
-        return goalBoundingPreprocessed;
+        return (p1.x - p3.x) * (p2.z - p3.z) - (p2.x - p3.x) * (p1.z - p3.z);
     }
 
-    public bool IsGoalBoundingEnabled()
-    {
-        return enableGoalBounding;
-    }
-
-
-    // Helper welder function to merge vertices in the same spot that aren't the same index
     private (Vector3[] weldedVertices, int[] newTriangleIndices) WeldVertices(NavMeshTriangulation triangulation)
     {
         var uniquePositions = new Dictionary<Vector3, int>();
@@ -339,7 +701,6 @@ public class GraphBuilder : MonoBehaviour
         var oldToNewIndexMap = new int[triangulation.vertices.Length];
         int newIndex = 0;
 
-        // First pass: Find all unique vertex positions
         for (int i = 0; i < triangulation.vertices.Length; i++)
         {
             Vector3 pos = triangulation.vertices[i];
@@ -356,7 +717,6 @@ public class GraphBuilder : MonoBehaviour
             }
         }
 
-        // Second pass: Create the new triangle index list using the remapped indices
         var newTriangleIndices = new int[triangulation.indices.Length];
         for (int i = 0; i < triangulation.indices.Length; i++)
         {
@@ -364,58 +724,13 @@ public class GraphBuilder : MonoBehaviour
             newTriangleIndices[i] = oldToNewIndexMap[oldIndex];
         }
 
-        Debug.Log($"Vertex welding complete: {triangulation.vertices.Length} original -> {newVertices.Count} unique.");
-
         return (newVertices.ToArray(), newTriangleIndices);
     }
-
-    private void VisualizeNavmesh(Vector3[] vertices, int[] indices)
-    {
-        // Draw a triangle for each node
-        List<Vector3> combinedVertices = new List<Vector3>();
-        List<int> combinedTriangles = new List<int>();
-        List<Color> combinedColors = new List<Color>();
-        int vertexIndex = 0;
-        foreach (Node node in nodeList)
-        {
-            Color triangleColor = new Color(Random.value, Random.value, Random.value);
-
-            // Get the vertices for the current triangle
-            Vector3 v1 = vertices[node.Vertices[0]];
-            Vector3 v2 = vertices[node.Vertices[1]];
-            Vector3 v3 = vertices[node.Vertices[2]];
-
-            // Add these vertices to our combined list
-            combinedVertices.Add(v1);
-            combinedVertices.Add(v2);
-            combinedVertices.Add(v3);
-
-            combinedColors.Add(triangleColor);
-            combinedColors.Add(triangleColor);
-            combinedColors.Add(triangleColor);
-
-            // Add the indices for this new triangle.
-            // The indices are relative to the vertices we just added.
-            combinedTriangles.Add(vertexIndex);
-            combinedTriangles.Add(vertexIndex + 1);
-            combinedTriangles.Add(vertexIndex + 2);
-
-            // Increment our vertex index for the next triangle
-            vertexIndex += 3;
-        }
-
-        Mesh finalMesh = new Mesh();
-        finalMesh.vertices = combinedVertices.ToArray();
-        finalMesh.triangles = combinedTriangles.ToArray();
-        finalMesh.colors = combinedColors.ToArray();
-        finalMesh.RecalculateNormals();
-        meshFilter.mesh = finalMesh;
-        meshRenderer.material = navMeshMaterial;
-
-        Debug.Log($"NavMesh triangulation generated: {vertices.Length} vertices, {indices.Length / 3} triangles.");
-        Debug.Log($"Generated {nodeList.Count} nodes with {nodeList.Sum(n => n.Neighbors.Count)} total neighbor connections.");
-    }
-
-
 }
 
+public enum BoundingStrategy
+{
+    Fixed,        // Standard fixed-radius bounds
+    Adaptive,     // Bounds that adapt to threat level
+    Hierarchical  // Different bounds for different tactical scenarios
+}

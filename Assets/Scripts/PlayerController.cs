@@ -46,12 +46,14 @@ public class SimplePlayerController : MonoBehaviour
 
     void Update()
     {
-        // Only handle movement if camera is in player follow mode
+        // Only handle movement if camera is in player follow or first person mode
         bool shouldMovePlayer = true;
 
         if (cameraController != null)
         {
-            shouldMovePlayer = (cameraController.GetCurrentMode() == TacticalCameraController.CameraMode.PlayerFollow);
+            var mode = cameraController.GetCurrentMode();
+            shouldMovePlayer = (mode == TacticalCameraController.CameraMode.PlayerFollow ||
+                               mode == TacticalCameraController.CameraMode.FirstPerson);
         }
 
         if (shouldMovePlayer)
@@ -72,8 +74,29 @@ public class SimplePlayerController : MonoBehaviour
         float horizontal = Input.GetAxis("Horizontal");
         float vertical = Input.GetAxis("Vertical");
 
-        // Calculate movement direction
-        Vector3 inputDirection = new Vector3(horizontal, 0, vertical).normalized;
+        Vector3 inputDirection;
+
+        // Different movement based on camera mode
+        if (cameraController && cameraController.GetCurrentMode() == TacticalCameraController.CameraMode.FirstPerson)
+        {
+            // First person: move relative to player's facing direction
+            Vector3 forward = transform.forward;
+            Vector3 right = transform.right;
+
+            // Flatten directions to prevent flying
+            forward.y = 0;
+            right.y = 0;
+            forward.Normalize();
+            right.Normalize();
+
+            // Create movement direction relative to player's orientation
+            inputDirection = (forward * vertical + right * horizontal).normalized;
+        }
+        else
+        {
+            // Third person (PlayerFollow): move relative to world coordinates
+            inputDirection = new Vector3(horizontal, 0, vertical).normalized;
+        }
 
         if (inputDirection.magnitude > 0.1f)
         {
@@ -93,12 +116,16 @@ public class SimplePlayerController : MonoBehaviour
 
     void HandleRotation()
     {
-        // Rotate towards movement direction
-        if (moveDirection.magnitude > 0.1f)
+        // Only handle rotation in follow mode (first person handles rotation in camera)
+        if (cameraController && cameraController.GetCurrentMode() == TacticalCameraController.CameraMode.PlayerFollow)
         {
-            Vector3 lookDirection = new Vector3(moveDirection.x, 0, moveDirection.z);
-            Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
-            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            // Rotate towards movement direction (only if actually moving)
+            Vector3 worldMoveDirection = new Vector3(moveDirection.x, 0, moveDirection.z);
+            if (worldMoveDirection.magnitude > 0.1f)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(worldMoveDirection);
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            }
         }
     }
 
