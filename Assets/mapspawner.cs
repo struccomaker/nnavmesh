@@ -2,9 +2,14 @@ using UnityEngine;
 using UnityEngine.AI;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.AI.Navigation;    // ← brings in NavMeshSurface
+
 
 public class MapSpawner : MonoBehaviour
 {
+
+        [Header("NavMesh (for runtime baking)")]
+     public Unity.AI.Navigation.NavMeshSurface surface;
     [Header("Prefabs")]
     public GameObject groundPrefab;     // scaled howevesr you like in the Project
     public GameObject[] blockPrefabs;   // e.g. cube and L‐block
@@ -74,6 +79,7 @@ float maxZ = center.z + groundSize.z * 0.5f - margin;
             var rot    = Quaternion.Euler(0, 90 * Random.Range(0, 4), 0);
             Instantiate(prefab, pos, rot);
         }
+        surface.BuildNavMesh();
 
         // 6) Spawn Player at left edge, centered in Z
         Vector3 playerPos = new Vector3(
