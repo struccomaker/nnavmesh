@@ -2,9 +2,11 @@ using UnityEngine;
 using UnityEngine.AI;
 
 [RequireComponent(typeof(NavMeshAgent))]
-public class EnemyChase : MonoBehaviour
+public class enemyScript : MonoBehaviour
 {
+    [Tooltip("Who to chase")]
     public Transform target;
+
     private NavMeshAgent agent;
 
     void Awake()
@@ -16,10 +18,7 @@ public class EnemyChase : MonoBehaviour
 
     void Update()
     {
-        // only call SetDestination if the agent is actually on the NavMesh
         if (target != null && agent.isOnNavMesh)
-        {
             agent.SetDestination(target.position);
-        }
     }
 }

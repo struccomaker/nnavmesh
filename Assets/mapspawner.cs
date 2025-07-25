@@ -1,114 +1,110 @@
 using UnityEngine;
-using UnityEngine.AI;
+using Unity.AI.Navigation;   // for NavMeshSurface
 using System.Collections.Generic;
 using System.Linq;
-using Unity.AI.Navigation;    // ← brings in NavMeshSurface
-
 
 public class MapSpawner : MonoBehaviour
 {
+    [Header("NavMesh (Runtime Bake)")]
+    public NavMeshSurface surface;
 
-        [Header("NavMesh (for runtime baking)")]
-     public Unity.AI.Navigation.NavMeshSurface surface;
     [Header("Prefabs")]
-    public GameObject groundPrefab;     // scaled howevesr you like in the Project
-    public GameObject[] blockPrefabs;   // e.g. cube and L‐block
+    public GameObject groundPrefab;
+    public GameObject[] blockPrefabs;
     public GameObject playerPrefab;
-    public GameObject enemyPrefab;
+    [Tooltip("Drag your EnemySpawner prefab here")]
+    public GameObject enemySpawnerPrefab;
 
     [Header("Layout Settings")]
-    public int   blockCount   = 20;     // how many obstacles
-    public float blockSpacing = 4f;     // grid cell size
+    public int   blockCount   = 20;  // number of obstacles
+    public float blockSpacing = 4f;  // spacing between obstacle‐grid cells
 
     void Start()
     {
-        // 1) Spawn ground & measure its world bounds
-        var ground = Instantiate(groundPrefab, Vector3.zero, Quaternion.identity);
-        var groundMR = ground.GetComponent<MeshRenderer>();
-        Vector3 groundSize = groundMR.bounds.size;   // X/Z is full world size
-        Vector3 center     = ground.transform.position;
+        // 1) Spawn the ground and grab its size & center
+        GameObject ground = Instantiate(groundPrefab, Vector3.zero, Quaternion.identity);
+        // var bounds = ground.GetComponent<MeshRenderer>().bounds;
+        Vector3 center = ground.GetComponent<MeshRenderer>().bounds.center;
+        float halfWidth  = ground.GetComponent<MeshRenderer>().bounds.size.x * 0.5f;
+        float halfDepth  = ground.GetComponent<MeshRenderer>().bounds.size.z * 0.5f;
 
-        // 2) Compute a “margin” so no block can overhang
+        // 2) Figure out a margin so blocks never overhang
         float margin = 0f;
-foreach (var prefab in blockPrefabs)
-{
-    var mf = prefab.GetComponentInChildren<MeshFilter>();
-    if (mf != null)
-    {
-        // get half-size in local space, then apply prefab’s scale
-        Vector3 ext = mf.sharedMesh.bounds.extents;
-        ext = Vector3.Scale(ext, prefab.transform.localScale);
-
-        // pick the larger of the two horizontal axes
-        float maxHalfSize = Mathf.Max(ext.x, ext.z);
-        margin = Mathf.Max(margin, maxHalfSize);
-    }
-}
-
-// 3) Now shrink your spawn bounds by that single margin on all sides:
-float minX = center.x - groundSize.x * 0.5f + margin;
-float maxX = center.x + groundSize.x * 0.5f - margin;
-float minZ = center.z - groundSize.z * 0.5f + margin;
-float maxZ = center.z + groundSize.z * 0.5f - margin;
-
-        // 4) Tile that area into blockSpacing × blockSpacing cells
-        int cellsX = Mathf.FloorToInt((maxX - minX) / blockSpacing);
-        int cellsZ = Mathf.FloorToInt((maxZ - minZ) / blockSpacing);
-        var cells = new List<Vector2>(cellsX * cellsZ);
-
-        for (int ix = 0; ix <= cellsX; ix++)
+        foreach (var prefab in blockPrefabs)
         {
-            for (int iz = 0; iz <= cellsZ; iz++)
-            {
-                float x = minX + ix * blockSpacing;
-                float z = minZ + iz * blockSpacing;
-                cells.Add(new Vector2(x, z));
-            }
+            var mf = prefab.GetComponentInChildren<MeshFilter>();
+            if (mf == null) continue;
+            Vector3 ext = mf.sharedMesh.bounds.extents;
+            ext = Vector3.Scale(ext, prefab.transform.localScale);
+            margin = Mathf.Max(margin, Mathf.Max(ext.x, ext.z));
         }
 
-        // 5) Shuffle & spawn exactly blockCount cells
+        // 3) Build a list of valid block‐spawn cells
+        float minX = center.x - halfWidth  + margin;
+        float maxX = center.x + halfWidth  - margin;
+        float minZ = center.z - halfDepth  + margin;
+        float maxZ = center.z + halfDepth  - margin;
+
+        int cellsX = Mathf.FloorToInt((maxX - minX) / blockSpacing);
+        int cellsZ = Mathf.FloorToInt((maxZ - minZ) / blockSpacing);
+
+        var cells = new List<Vector2>(cellsX * cellsZ);
+        for (int x = 0; x <= cellsX; x++)
+            for (int z = 0; z <= cellsZ; z++)
+                cells.Add(new Vector2(minX + x * blockSpacing,
+                                      minZ + z * blockSpacing));
+
+        // 4) Shuffle & pop off exactly blockCount cells
         var rng      = new System.Random();
-        var shuffled = cells.OrderBy(c => rng.Next()).ToList();
+        var shuffled = cells.OrderBy(_ => rng.Next()).ToList();
         int spawnNum = Mathf.Min(blockCount, shuffled.Count);
 
         for (int i = 0; i < spawnNum; i++)
         {
-            var cell = shuffled[i];
-            var pos  = new Vector3(cell.x, 0.5f, cell.y);
-            var prefab = blockPrefabs[Random.Range(0, blockPrefabs.Length)];
-            var rot    = Quaternion.Euler(0, 90 * Random.Range(0, 4), 0);
+            var c = shuffled[i];
+            Vector3 pos = new Vector3(c.x, 0.5f, c.y);
+            GameObject prefab = blockPrefabs[Random.Range(0, blockPrefabs.Length)];
+            Quaternion rot   = Quaternion.Euler(0, 90 * Random.Range(0, 4), 0);
             Instantiate(prefab, pos, rot);
         }
+
+        // 5) Bake the NavMesh now that obstacles are in place
         surface.BuildNavMesh();
 
-        // 6) Spawn Player at left edge, centered in Z
+        // 6) Spawn the Player at left‐edge
         Vector3 playerPos = new Vector3(
-            center.x - groundSize.x * 0.5f + blockSpacing,
+            center.x - halfWidth + blockSpacing,
             0.5f,
             center.z
         );
-        var player = Instantiate(playerPrefab, playerPos, Quaternion.identity);
-        player.name = "Player";
+        GameObject playerGO = Instantiate(playerPrefab, playerPos, Quaternion.identity);
+        playerGO.name = "Player";
+        playerGO.tag  = "Player";   // so FindGameObjectWithTag will later work
 
-        // 7) Spawn Enemy at right edge
-        Vector3 enemyPos = new Vector3(
-            center.x + groundSize.x * 0.5f - blockSpacing,
-            0.5f,
-            center.z
-        );
-        var enemy = Instantiate(enemyPrefab, enemyPos, Quaternion.identity);
-        enemy.name = "Enemy";
+// 7) Finally, drop in your EnemySpawner prefab so it scatters enemies
+if (enemySpawnerPrefab != null)
+{
+    // Instantiate the spawner at your map’s center
+    GameObject spawnerGO = Instantiate(enemySpawnerPrefab, center, Quaternion.identity);
 
-        // 8) Ensure the Enemy has a NavMeshAgent
-        var agent = enemy.GetComponent<NavMeshAgent>();
-        if (agent == null)
-        {
-            agent = enemy.AddComponent<NavMeshAgent>();
-            agent.updateRotation = false;
-            agent.updateUpAxis   = false;
-        }
+    // Try to get the spawner component
+    var sp = spawnerGO.GetComponent<RandomEnemySpawner>();
+    if (sp != null)
+    {
+        // Configure it _once_
+        sp.areaCenter = center;
+        sp.player     = playerGO.transform;
 
-        // 9) Hook up the chase script
-        enemy.GetComponent<EnemyChase>().target = player.transform;
+        Debug.Log($"Spawner got player = {sp.player.name}");
+    }
+    else
+    {
+        Debug.LogError($"[{nameof(MapSpawner)}] '{enemySpawnerPrefab.name}' is missing a RandomEnemySpawner component!");
+    }
+}
+else
+{
+    Debug.LogError($"[{nameof(MapSpawner)}] No EnemySpawner prefab assigned!");
+}
     }
 }
