@@ -81,30 +81,30 @@ public class MapSpawner : MonoBehaviour
         playerGO.name = "Player";
         playerGO.tag  = "Player";   // so FindGameObjectWithTag will later work
 
-// 7) Finally, drop in your EnemySpawner prefab so it scatters enemies
-if (enemySpawnerPrefab != null)
-{
-    // Instantiate the spawner at your map’s center
-    GameObject spawnerGO = Instantiate(enemySpawnerPrefab, center, Quaternion.identity);
+        // 7) Finally, drop in your EnemySpawner prefab so it scatters enemies
+        if (enemySpawnerPrefab != null)
+        {
+            // Instantiate the spawner at your map’s center
+            GameObject spawnerGO = Instantiate(enemySpawnerPrefab, center, Quaternion.identity);
 
-    // Try to get the spawner component
-    var sp = spawnerGO.GetComponent<RandomEnemySpawner>();
-    if (sp != null)
-    {
-        // Configure it _once_
-        sp.areaCenter = center;
-        sp.player     = playerGO.transform;
+            // Try to get the spawner component
+            var sp = spawnerGO.GetComponent<RandomEnemySpawner>();
+            if (sp != null)
+            {
+                // Configure it _once_
+                sp.areaCenter = center;
+                sp.player     = playerGO.transform;
 
-        Debug.Log($"Spawner got player = {sp.player.name}");
-    }
-    else
-    {
-        Debug.LogError($"[{nameof(MapSpawner)}] '{enemySpawnerPrefab.name}' is missing a RandomEnemySpawner component!");
-    }
-}
-else
-{
-    Debug.LogError($"[{nameof(MapSpawner)}] No EnemySpawner prefab assigned!");
-}
+                Debug.Log($"Spawner got player = {sp.player.name}");
+            }
+            else
+            {
+                Debug.LogError($"[{nameof(MapSpawner)}] '{enemySpawnerPrefab.name}' is missing a RandomEnemySpawner component!");
+            }
+        }
+        else
+        {
+            Debug.LogError($"[{nameof(MapSpawner)}] No EnemySpawner prefab assigned!");
+        }
     }
 }

@@ -26,7 +26,7 @@ Transform:
   m_GameObject: {fileID: 2589485240599447624}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -1.46872, y: 0, z: 28.76809}
+  m_LocalPosition: {x: -35.00819, y: 0, z: -2.63164}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -45,7 +45,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   enemyPrefab: {fileID: 7561443644905012935, guid: 3a95837cd4c7c5242a2ebed34d841ba4, type: 3}
-  totalEnemies: 2
+  totalEnemies: 50
   areaCenter: {x: 0, y: 0, z: 0}
   areaSize: {x: 20, y: 20}
   navMeshSampleDistance: 2
