@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 9109115557805267957}
   - component: {fileID: 4439372320295274174}
   - component: {fileID: 8800570880281572661}
+  - component: {fileID: 7317208587571471423}
   m_Layer: 0
   m_Name: enemyPrefab
   m_TagString: Enemy
@@ -30,7 +31,7 @@ Transform:
   m_GameObject: {fileID: 7561443644905012935}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.9939232, y: 0, z: -57.482635}
+  m_LocalPosition: {x: -101.38006, y: 0.21146, z: -29.85799}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -119,7 +120,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7561443644905012935}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 035baf413bd6a8a4a80400f81df9dbdc, type: 3}
   m_Name: 
@@ -147,3 +148,21 @@ NavMeshAgent:
   m_BaseOffset: 1
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
+--- !u!114 &7317208587571471423
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7561443644905012935}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b80b43a22c1f0a34a80eb43d300b8e44, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  detectionRange: 30
+  updateInterval: 0.5
+  cautionDistance: 8
+  fleeDistance: 3
+  walkSpeed: 2
+  runSpeed: 4
