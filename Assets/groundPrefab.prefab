@@ -149,7 +149,7 @@ GameObject:
   - component: {fileID: 6533130092644809123}
   - component: {fileID: 1869656381718401654}
   - component: {fileID: 5532089670941313316}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: groundPrefab
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -165,7 +165,7 @@ Transform:
   m_GameObject: {fileID: 8020693485015235790}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -22.96372, y: 0, z: -8.55411}
+  m_LocalPosition: {x: -56.761948, y: 0.0000038146973, z: -1.3768921}
   m_LocalScale: {x: 10, y: 10, z: 10}
   m_ConstrainProportionsScale: 0
   m_Children:

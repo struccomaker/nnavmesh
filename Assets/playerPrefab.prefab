@@ -152,6 +152,8 @@ GameObject:
   - component: {fileID: 5766759922183738451}
   - component: {fileID: 6470924060421145614}
   - component: {fileID: 3102260964899705131}
+  - component: {fileID: 8759369486550719803}
+  - component: {fileID: 7988823279148285293}
   m_Layer: 7
   m_Name: playerPrefab
   m_TagString: Player
@@ -168,7 +170,7 @@ Transform:
   m_GameObject: {fileID: 7685257548741221320}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -101.87711, y: 0, z: -29.91219}
+  m_LocalPosition: {x: -30.983261, y: 0, z: -9.391836}
   m_LocalScale: {x: 1, y: 1.2169, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -309,3 +311,42 @@ MonoBehaviour:
   meleeColor: {r: 0, g: 0, b: 1, a: 1}
   rangedColor: {r: 0, g: 1, b: 0, a: 1}
   weaponSwitchKey: 32
+--- !u!195 &8759369486550719803
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7685257548741221320}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 0.5
+  m_Speed: 3.5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 120
+  m_StoppingDistance: 0
+  m_AutoTraverseOffMeshLink: 1
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 1.9999999
+  m_BaseOffset: 0.99999994
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
+--- !u!114 &7988823279148285293
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7685257548741221320}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a6f6efd3d9cff5f4f97b0962d3b4c060, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cam: {fileID: 0}
+  groundMask:
+    serializedVersion: 2
+    m_Bits: 256
+  agent: {fileID: 8759369486550719803}
