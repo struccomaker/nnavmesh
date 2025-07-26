@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.AI.Navigation;   // for NavMeshSurface
 using System.Collections.Generic;
 using System.Linq;
+using System.Collections;
 
 public class MapSpawner : MonoBehaviour
 {
@@ -19,7 +20,7 @@ public class MapSpawner : MonoBehaviour
     public int   blockCount   = 20;  // number of obstacles
     public float blockSpacing = 4f;  // spacing between obstacle‐grid cells
 
-    void Start()
+    IEnumerator Start()
     {
         // 1) Spawn the ground and grab its size & center
         GameObject ground = Instantiate(groundPrefab, Vector3.zero, Quaternion.identity);
@@ -70,7 +71,19 @@ public class MapSpawner : MonoBehaviour
 
         // 5) Bake the NavMesh now that obstacles are in place
         surface.BuildNavMesh();
+          yield return null;
+        // // DRAW ALL TRIANGLES ONCE (cyan, 5 seconds)
+        // var nav = UnityEngine.AI.NavMesh.CalculateTriangulation();
+        // for (int i = 0; i < nav.indices.Length; i += 3)
+        // {
+        //     Vector3 a = nav.vertices[nav.indices[i]];
+        //     Vector3 b = nav.vertices[nav.indices[i + 1]];
+        //     Vector3 c = nav.vertices[nav.indices[i + 2]];
 
+        //     Debug.DrawLine(a, b, Color.cyan, 5f);
+        //     Debug.DrawLine(b, c, Color.cyan, 5f);
+        //     Debug.DrawLine(c, a, Color.cyan, 5f);
+        // }
         // 6) Spawn the Player at left‐edge
         Vector3 playerPos = new Vector3(
             center.x - halfWidth + blockSpacing,
@@ -107,4 +120,36 @@ public class MapSpawner : MonoBehaviour
             Debug.LogError($"[{nameof(MapSpawner)}] No EnemySpawner prefab assigned!");
         }
     }
+
+//      void Update()
+//     {
+
+//         const float lift = 10f;  // tweak as needed
+//         // --- Triangles (every frame) ---
+//     var nav = UnityEngine.AI.NavMesh.CalculateTriangulation();
+//     for (int i = 0; i < nav.indices.Length; i += 3)
+//     {
+//     Vector3 a = nav.vertices[nav.indices[i + 0]] + Vector3.up * lift;
+//     Vector3 b = nav.vertices[nav.indices[i + 1]] + Vector3.up * lift;
+//     Vector3 c = nav.vertices[nav.indices[i + 2]] + Vector3.up * lift;
+
+//         Debug.DrawLine(a, b, Color.cyan);
+//         Debug.DrawLine(b, c, Color.cyan);
+//         Debug.DrawLine(c, a, Color.cyan);
+//     }
+
+//     // --- Agent paths (every frame) ---
+//    foreach (var agent in FindObjectsOfType<UnityEngine.AI.NavMeshAgent>())
+//         {
+//             if (!agent.hasPath) continue;
+//             var pts = agent.path.corners;
+//             for (int j = 0; j < pts.Length - 1; j++)
+//             {
+//                 Vector3 p1 = pts[j]     + Vector3.up * lift;
+//                 Vector3 p2 = pts[j + 1] + Vector3.up * lift;
+//                 Debug.DrawLine(p1, p2, Color.red);
+//             }
+//         }
+//     }
+    
 }
