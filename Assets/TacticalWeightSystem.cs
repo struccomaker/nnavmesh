@@ -173,11 +173,11 @@ public class TacticalWeightSystem : MonoBehaviour
         float distance = Vector3.Distance(position, player.position);
         float threatRadius = playerWeapon.CurrentThreatRadius;
 
-        // Debug every 100th calculation to avoid spam
-        if (Random.Range(0, 100) == 0)
-        {
-            Debug.Log($"Threat calc: pos={position}, player={player.position}, distance={distance:F1}, threatRadius={threatRadius:F1}");
-        }
+        //// Debug every 100th calculation to avoid spam
+        //if (Random.Range(0, 100) == 0)
+        //{
+        //    Debug.Log($"Threat calc: pos={position}, player={player.position}, distance={distance:F1}, threatRadius={threatRadius:F1}");
+        //}
 
         if (distance > threatRadius) return 0f;
 

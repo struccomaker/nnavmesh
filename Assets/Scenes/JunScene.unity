@@ -199,6 +199,9 @@ GameObject:
   - component: {fileID: 470682536}
   - component: {fileID: 470682537}
   - component: {fileID: 470682538}
+  - component: {fileID: 470682541}
+  - component: {fileID: 470682540}
+  - component: {fileID: 470682539}
   m_Layer: 0
   m_Name: mapspawner
   m_TagString: Untagged
@@ -380,6 +383,49 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   agent: {fileID: 8759369486550719803, guid: ad6e32bece9e2cb46b4b26ac8b08e3d1, type: 3}
+--- !u!114 &470682539
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 470682530}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3073096bb85601040a59a69e8ef132bb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &470682540
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 470682530}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c6792d2f1b4e52a4c95aa195beec51b1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &470682541
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 470682530}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: df940d7b7640ca841a5c793f05d1bb68, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  currentMode: 0
+  toggleModeKey: 112
+  showPerformanceMetrics: 1
+  maxMetricsSamples: 100
+  boundingStrategy: 0
+  fixedBoundRadius: 10
+  adaptiveThreatMultiplier: 1.5
 --- !u!1 &502836987
 GameObject:
   m_ObjectHideFlags: 0

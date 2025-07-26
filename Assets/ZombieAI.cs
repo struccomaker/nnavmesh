@@ -304,28 +304,45 @@ public class ZombieAI : MonoBehaviour
     {
         agent.speed = runSpeed;
 
-        // For melee weapons: AGGRESSIVE DIRECT CHASE
-        if (lastKnownWeaponType == PlayerWeaponSystem.WeaponType.Melee)
+        // Use PathfindingController if available
+        PathfindingController pathController = FindObjectOfType<PathfindingController>();
+        if (pathController != null)
         {
-            Debug.Log($"Zombie {name} AGGRESSIVELY CHASING player with melee weapon!");
+            PathfindingController.PathfindingMetrics metrics;
+            bool pathRequested = pathController.RequestPath(this, lastKnownPlayerPosition, out metrics);
 
-            // Direct approach - get as close as possible
-            if (agent.isOnNavMesh && agent.isActiveAndEnabled)
+            if (!pathRequested)
             {
-                agent.SetDestination(lastKnownPlayerPosition);
+                // Fallback to direct NavMesh if hybrid system fails
+                if (agent.isOnNavMesh && agent.isActiveAndEnabled)
+                {
+                    agent.SetDestination(lastKnownPlayerPosition);
+                }
             }
         }
         else
         {
-            // For ranged weapons outside threat range: normal approach
-            Vector3 flankPosition = FindFlankingPosition();
-            if (flankPosition != Vector3.zero && agent.isOnNavMesh && agent.isActiveAndEnabled)
+            // Original behavior if no PathfindingController
+            if (lastKnownWeaponType == PlayerWeaponSystem.WeaponType.Melee)
             {
-                agent.SetDestination(flankPosition);
+                Debug.Log($"Zombie {name} AGGRESSIVELY CHASING player with melee weapon!");
+
+                if (agent.isOnNavMesh && agent.isActiveAndEnabled)
+                {
+                    agent.SetDestination(lastKnownPlayerPosition);
+                }
             }
             else
             {
-                agent.SetDestination(lastKnownPlayerPosition);
+                Vector3 flankPosition = FindFlankingPosition();
+                if (flankPosition != Vector3.zero && agent.isOnNavMesh && agent.isActiveAndEnabled)
+                {
+                    agent.SetDestination(flankPosition);
+                }
+                else
+                {
+                    agent.SetDestination(lastKnownPlayerPosition);
+                }
             }
         }
     }
@@ -371,7 +388,26 @@ public class ZombieAI : MonoBehaviour
         Vector3 safePosition = FindSafeFleePosition();
         if (safePosition != Vector3.zero)
         {
-            agent.SetDestination(safePosition);
+            // Use PathfindingController if available
+            PathfindingController pathController = FindObjectOfType<PathfindingController>();
+            if (pathController != null)
+            {
+                PathfindingController.PathfindingMetrics metrics;
+                bool pathRequested = pathController.RequestPath(this, safePosition, out metrics);
+
+                if (!pathRequested && agent.isOnNavMesh && agent.isActiveAndEnabled)
+                {
+                    agent.SetDestination(safePosition);
+                }
+            }
+            else
+            {
+                if (agent.isOnNavMesh && agent.isActiveAndEnabled)
+                {
+                    agent.SetDestination(safePosition);
+                }
+            }
+
             Debug.Log($"Zombie {name} fleeing to safe position at {safePosition}");
         }
         else
@@ -383,7 +419,14 @@ public class ZombieAI : MonoBehaviour
             NavMeshHit hit;
             if (NavMesh.SamplePosition(fleeTarget, out hit, 10f, NavMesh.AllAreas))
             {
-                if (agent.isOnNavMesh && agent.isActiveAndEnabled)
+                // Use PathfindingController if available
+                PathfindingController pathController = FindObjectOfType<PathfindingController>();
+                if (pathController != null)
+                {
+                    PathfindingController.PathfindingMetrics metrics;
+                    pathController.RequestPath(this, hit.position, out metrics);
+                }
+                else if (agent.isOnNavMesh && agent.isActiveAndEnabled)
                 {
                     agent.SetDestination(hit.position);
                 }
