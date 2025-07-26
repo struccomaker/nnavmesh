@@ -162,14 +162,14 @@ public class MapSpawner : MonoBehaviour
         Debug.Log($"Built NavMesh triangle data: {navMeshTriangles.Count} triangles");
     }
 
-    void Update()
-    {
-        // Removed triangle drawing - now handled by NavMeshTriangleRenderer
-        if (showAgentPaths)
-        {
-            DrawAgentPaths();
-        }
-    }
+    // void Update()
+    // {
+    //     // Removed triangle drawing - now handled by NavMeshTriangleRenderer
+    //     if (showAgentPaths)
+    //     {
+    //         DrawAgentPaths();
+    //     }
+    // }
 
     void DrawNavMeshTriangles()
     {
@@ -239,22 +239,22 @@ public class MapSpawner : MonoBehaviour
         }
     }
 
-    void DrawAgentPaths()
-    {
-        // Draw paths for all NavMesh agents in the scene
-        foreach (var agent in FindObjectsOfType<UnityEngine.AI.NavMeshAgent>())
-        {
-            if (!agent.hasPath) continue;
+    // void DrawAgentPaths()
+    // {
+    //     // Draw paths for all NavMesh agents in the scene
+    //     foreach (var agent in FindObjectsOfType<UnityEngine.AI.NavMeshAgent>())
+    //     {
+    //         if (!agent.hasPath) continue;
 
-            var pathCorners = agent.path.corners;
-            for (int j = 0; j < pathCorners.Length - 1; j++)
-            {
-                Vector3 p1 = pathCorners[j] + Vector3.up * visualizationHeight;
-                Vector3 p2 = pathCorners[j + 1] + Vector3.up * visualizationHeight;
-                Debug.DrawLine(p1, p2, agentPathColor);
-            }
-        }
-    }
+    //         var pathCorners = agent.path.corners;
+    //         for (int j = 0; j < pathCorners.Length - 1; j++)
+    //         {
+    //             Vector3 p1 = pathCorners[j] + Vector3.up * visualizationHeight;
+    //             Vector3 p2 = pathCorners[j + 1] + Vector3.up * visualizationHeight;
+    //             Debug.DrawLine(p1, p2, agentPathColor);
+    //         }
+    //     }
+    // }
 
     // Public methods for accessing triangle data
     public NavMeshTriangle GetTriangleAtPosition(Vector3 position)

@@ -34,6 +34,7 @@ public class RandomEnemySpawner : MonoBehaviour
             // 1) Always instantiate
             var e = Instantiate(enemyPrefab, tryPos, Quaternion.identity);
             e.name = "Enemy";
+            e.tag = "Enemy";
 
             // 2) Ensure NavMeshAgent & warp it on‐mesh
             var agent = e.GetComponent<NavMeshAgent>()
