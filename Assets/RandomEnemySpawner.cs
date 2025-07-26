@@ -4,7 +4,7 @@ using UnityEngine.AI;
 public class RandomEnemySpawner : MonoBehaviour
 {
     public GameObject enemyPrefab;     // your Enemy.prefab here
-    public int totalEnemies = 50;
+    public int totalEnemies = 1;
     public Vector3 areaCenter;
     public Vector2 areaSize = new Vector2(40,40);
     public float navMeshSampleDistance = 100f;
