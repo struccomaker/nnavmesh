@@ -56,57 +56,91 @@ public class MapSpawner : MonoBehaviour
         }
     }
 
-    IEnumerator Start()
+  IEnumerator Start()
+{
+    // 1) Spawn the ground and grab its size & center
+    GameObject ground = Instantiate(groundPrefab, Vector3.zero, Quaternion.identity);
+    var gr    = ground.GetComponent<MeshRenderer>();
+    Vector3 center    = gr.bounds.center;
+    float halfWidth   = gr.bounds.size.x * 0.5f;
+    float halfDepth   = gr.bounds.size.z * 0.5f;
+
+    // 2) For each prefab, measure its true half-extents in XZ
+    //    We'll also use these to compute a “margin” and to clamp later
+    var prefabExtents = new Dictionary<GameObject, Vector3>();
+    float margin = 0f;
+
+    foreach (var prefab in blockPrefabs)
     {
-        // 1) Spawn the ground and grab its size & center
-        GameObject ground = Instantiate(groundPrefab, Vector3.zero, Quaternion.identity);
-        Vector3 center = ground.GetComponent<MeshRenderer>().bounds.center;
-        float halfWidth = ground.GetComponent<MeshRenderer>().bounds.size.x * 0.5f;
-        float halfDepth = ground.GetComponent<MeshRenderer>().bounds.size.z * 0.5f;
+        // instantiate hidden off-screen
+        var tmp = Instantiate(prefab, Vector3.zero, Quaternion.identity);
+        tmp.SetActive(false);
 
-        // 2) Figure out a margin so blocks never overhang
-        float margin = 0f;
-        foreach (var prefab in blockPrefabs)
-        {
-            var mf = prefab.GetComponentInChildren<MeshFilter>();
-            if (mf == null) continue;
-            Vector3 ext = mf.sharedMesh.bounds.extents;
-            ext = Vector3.Scale(ext, prefab.transform.localScale);
-            margin = Mathf.Max(margin, Mathf.Max(ext.x, ext.z));
-        }
+        // combine all renderers' world-space bounds
+        var rends = tmp.GetComponentsInChildren<Renderer>();
+        Bounds b = rends[0].bounds;
+        for (int i = 1; i < rends.Length; i++)
+            b.Encapsulate(rends[i].bounds);
 
-        // 3) Build a list of valid block‐spawn cells
-        float minX = center.x - halfWidth + margin;
-        float maxX = center.x + halfWidth - margin;
-        float minZ = center.z - halfDepth + margin;
-        float maxZ = center.z + halfDepth - margin;
+        // record the half-extents
+        Vector3 ext = b.extents;     // ext.x, ext.y, ext.z
+        prefabExtents[prefab] = ext;
 
-        int cellsX = Mathf.FloorToInt((maxX - minX) / blockSpacing);
-        int cellsZ = Mathf.FloorToInt((maxZ - minZ) / blockSpacing);
+        // keep track of the max X/Z extent for our uniform grid
+        margin = Mathf.Max(margin, Mathf.Max(ext.x, ext.z));
 
-        var cells = new List<Vector2>(cellsX * cellsZ);
-        for (int x = 0; x <= cellsX; x++)
-            for (int z = 0; z <= cellsZ; z++)
-                cells.Add(new Vector2(minX + x * blockSpacing,
-                                      minZ + z * blockSpacing));
+        Destroy(tmp);
+    }
 
-        // 4) Shuffle & pop off exactly blockCount cells
-        var rng = new System.Random();
-        var shuffled = cells.OrderBy(_ => rng.Next()).ToList();
-        int spawnNum = Mathf.Min(blockCount, shuffled.Count);
+    // 3) Build a uniform grid of cells offset by that margin
+    float minX = center.x - halfWidth + margin;
+    float maxX = center.x + halfWidth - margin;
+    float minZ = center.z - halfDepth + margin;
+    float maxZ = center.z + halfDepth - margin;
 
-        for (int i = 0; i < spawnNum; i++)
-        {
-            var c = shuffled[i];
-            Vector3 pos = new Vector3(c.x, 0.5f, c.y);
-            GameObject prefab = blockPrefabs[Random.Range(0, blockPrefabs.Length)];
-            Quaternion rot = Quaternion.Euler(0, 90 * Random.Range(0, 4), 0);
-            Instantiate(prefab, pos, rot);
-        }
+    int cellsX = Mathf.FloorToInt((maxX - minX) / blockSpacing);
+    int cellsZ = Mathf.FloorToInt((maxZ - minZ) / blockSpacing);
 
-        // 5) Bake the NavMesh now that obstacles are in place
-        surface.BuildNavMesh();
-        yield return null;
+    var cells = new List<Vector2>( (cellsX+1)*(cellsZ+1) );
+    for (int x = 0; x <= cellsX; x++)
+        for (int z = 0; z <= cellsZ; z++)
+            cells.Add(new Vector2(minX + x * blockSpacing,
+                                  minZ + z * blockSpacing));
+
+    // 4) Shuffle & pop off exactly blockCount cells
+    var rng      = new System.Random();
+    var shuffled = cells.OrderBy(_ => rng.Next()).ToList();
+    int spawnNum = Mathf.Min(blockCount, shuffled.Count);
+
+    for (int i = 0; i < spawnNum; i++)
+    {
+        // pick the cell center
+        var c = shuffled[i];
+
+        // pick a random prefab & its measured half-extents
+        var prefab = blockPrefabs[Random.Range(0, blockPrefabs.Length)];
+        var ext    = prefabExtents[prefab];
+
+        // clamp so the prefab’s footprint never crosses the true border
+        float x = Mathf.Clamp(c.x,
+                              center.x - halfWidth + ext.x,
+                              center.x + halfWidth - ext.x);
+        float z = Mathf.Clamp(c.y,
+                              center.z - halfDepth + ext.z,
+                              center.z + halfDepth - ext.z);
+
+        // set Y to the prefab’s own half-height (so it sits flush)
+        float y = ext.y;
+
+        Vector3 pos = new Vector3(x, y, z);
+        Quaternion rot = Quaternion.Euler(0, 90 * Random.Range(0, 4), 0);
+
+        Instantiate(prefab, pos, rot);
+    }
+
+    // 5) Bake the NavMesh …
+    surface.BuildNavMesh();
+    yield return null;
 
         // 6) Build our triangle data structure
         BuildTriangleDataStructure();
