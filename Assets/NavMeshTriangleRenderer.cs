@@ -10,7 +10,7 @@ public class NavMeshTriangleRenderer : MonoBehaviour
     public bool showTriangleCenters = true;
     public float lineWidth = 0.2f;
     public float centerSphereSize = 0.1f;
-    public float visualizationHeight = 0.1f;
+    public float visualizationHeight = 1.1f;
 
     private List<GameObject> triangleEdges = new List<GameObject>();
     private List<GameObject> triangleCenters = new List<GameObject>();
